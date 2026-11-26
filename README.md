@@ -122,6 +122,7 @@ docker compose run --rm nakama run henji --force   # 手動実行
 ```bash
 python -m nakama ui              # 画面だけ起動 → http://localhost:8765
 python -m nakama serve --ui      # スケジューラと一緒に起動（常駐スクリプトと Docker はこちらが既定）
+# --open を付けるとブラウザも自動で開く（Windows / macOS の常駐スクリプトは付けて登録済み）
 ```
 - エージェント一覧（状態・最終成功・本日のコスト・「今すぐ実行」ボタン）を表示します。
 - 下書き / 要対応 / レポート / 受信 / リード / 商談 / 割り当て / ナレッジ / ログを閲覧できます。

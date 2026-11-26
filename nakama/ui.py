@@ -254,6 +254,7 @@ def tail_log(lines: int = 200) -> str:
 # ---------- HTTP ----------
 
 class _Handler(BaseHTTPRequestHandler):
+    index_html: str = ""
     token: str = ""
     allowed_hosts: set[str] = set()
     password: str = ""
@@ -333,7 +334,7 @@ class _Handler(BaseHTTPRequestHandler):
         if url.path in ("/", "/index.html"):
             if not self._guard(api=False):
                 return
-            html = INDEX_HTML.read_text(encoding="utf-8").replace("__NAKAMA_TOKEN__", self.token)
+            html = self.index_html.replace("__NAKAMA_TOKEN__", self.token)
             self._send(200, html.encode("utf-8"), "text/html")
             return
         if not url.path.startswith("/api/"):
@@ -384,21 +385,40 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
 
+class _Server(ThreadingHTTPServer):
+    # On Windows SO_REUSEADDR lets a second server bind the same port silently and steal requests
+    # (an old process keeps answering with old code). Fail loudly instead.
+    allow_reuse_address = sys.platform != "win32"
+    daemon_threads = True
+
+
 def make_server(host: str = "127.0.0.1", port: int = 8765) -> ThreadingHTTPServer:
     extra = {h.strip().lower() for h in os.environ.get("NAKAMA_UI_ALLOW_HOSTS", "").split(",") if h.strip()}
     handler = type("NakamaHandler", (_Handler,), {
+        # Read the page once so the HTML always matches this process's API (restart to update).
+        "index_html": INDEX_HTML.read_text(encoding="utf-8"),
         "token": secrets.token_urlsafe(24),
         "allowed_hosts": {"localhost", "127.0.0.1", "::1"} | extra,
         "password": os.environ.get("NAKAMA_UI_PASSWORD", ""),
     })
     if host not in ("127.0.0.1", "localhost", "::1") and not handler.password:
         log.warning("UI listens on %s without NAKAMA_UI_PASSWORD; anyone allowed by Host can open it", host)
-    return ThreadingHTTPServer((host, port), handler)
+    return _Server((host, port), handler)
 
 
-def serve_ui(host: str = "127.0.0.1", port: int = 8765, background: bool = False) -> ThreadingHTTPServer:
-    server = make_server(host, port)
-    log.info("Nakama UI: http://localhost:%d/", port)
+def serve_ui(host: str = "127.0.0.1", port: int = 8765, background: bool = False,
+             open_browser: bool = False) -> ThreadingHTTPServer:
+    server = make_server(host, port)  # the socket is bound here, so the browser can connect right away
+    url = f"http://localhost:{port}/"
+    log.info("Nakama UI: %s", url)
+    if open_browser:
+        import webbrowser
+
+        try:
+            if not webbrowser.open(url):
+                log.warning("no browser available; open %s manually", url)
+        except webbrowser.Error as exc:
+            log.warning("could not open browser (%s); open %s manually", exc, url)
     if background:
         threading.Thread(target=server.serve_forever, name="nakama-ui", daemon=True).start()
     else:

@@ -12,7 +12,7 @@ if (-not (Test-Path $pythonw)) {
     throw "Not found: $pythonw. Create the venv first: python -m venv .venv; .\.venv\Scripts\pip install -e ."
 }
 
-$action   = New-ScheduledTaskAction -Execute $pythonw -Argument "-m nakama serve --ui" -WorkingDirectory $repo
+$action   = New-ScheduledTaskAction -Execute $pythonw -Argument "-m nakama serve --ui --open" -WorkingDirectory $repo
 $trigger  = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 # Restart on failure; allow running on battery; never time out (it is a daemon).
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `

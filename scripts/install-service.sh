@@ -66,7 +66,7 @@ EOF
 <plist version="1.0"><dict>
   <key>Label</key><string>com.nakama.scheduler</string>
   <key>ProgramArguments</key><array>
-    <string>$PYTHON</string><string>-m</string><string>nakama</string><string>serve</string><string>--ui</string>
+    <string>$PYTHON</string><string>-m</string><string>nakama</string><string>serve</string><string>--ui</string><string>--open</string>
   </array>
   <key>WorkingDirectory</key><string>$REPO</string>
   <key>RunAtLoad</key><true/>

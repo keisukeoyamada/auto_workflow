@@ -94,7 +94,10 @@ def cmd_serve(args: argparse.Namespace) -> int:
     if args.ui:
         from .ui import serve_ui
 
-        serve_ui(args.host, args.port, background=True)  # dashboard thread next to the scheduler
+        try:
+            serve_ui(args.host, args.port, background=True, open_browser=args.open)  # thread next to the scheduler
+        except OSError as exc:  # e.g. port already in use: keep the scheduler running without the UI
+            logging.getLogger(__name__).error("UI could not start on port %d: %s", args.port, exc)
     serve()
     return 0
 
@@ -102,13 +105,19 @@ def cmd_serve(args: argparse.Namespace) -> int:
 def cmd_ui(args: argparse.Namespace) -> int:
     from .ui import serve_ui
 
-    serve_ui(args.host, args.port)
+    try:
+        serve_ui(args.host, args.port, open_browser=args.open)
+    except OSError as exc:
+        print(f"port {args.port} is in use ({exc}). Another Nakama UI may be running "
+              f"(e.g. the scheduled task) - open http://localhost:{args.port}/ or use --port.", file=sys.stderr)
+        return 1
     return 0
 
 
 def _add_ui_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--host", default="127.0.0.1", help="bind address (0.0.0.0 inside Docker)")
     p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--open", action="store_true", help="open the dashboard in the default browser")
 
 
 def cmd_request(args: argparse.Namespace) -> int:

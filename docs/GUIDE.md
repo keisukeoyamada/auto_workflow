@@ -26,7 +26,7 @@
 | 気になったとき | 「〇〇をこう変えて」と依頼する（15 分以内に反映） | 変更依頼 |
 | 送ったあと | 送信したメールを `workspace/mail/sent/` に置く（`draft_id:` 付き）。Nokori が下書きとの差分を学習する | — |
 
-起動は `python -m nakama ui`（画面だけ）か `python -m nakama serve --ui`（スケジューラも一緒）です。開くアドレスは http://localhost:8765 です。
+起動は `python -m nakama ui`（画面だけ）か `python -m nakama serve --ui`（スケジューラも一緒）です。開くアドレスは http://localhost:8765 です。`--open` を付けるとブラウザも自動で開きます。Windows（タスクスケジューラ）と macOS（launchd）の常駐スクリプトは、最初から `--open` 付きで登録されるので、ログオンすると画面が開きます。
 
 ## 3. データの保存場所
 
