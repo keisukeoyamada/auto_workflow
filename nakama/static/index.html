@@ -296,7 +296,9 @@ const GROUPS = [
   { id: "g-team", label: "勤怠", tabs: ["attendance", "overtime"] },
   { id: "g-sales", label: "営業", tabs: ["leads", "opportunities", "assignments"] },
   { id: "g-rec", label: "記録", tabs: ["reports", "knowledge", "costs", "log"] },
-  { id: "g-money", label: "家計", tabs: ["credit"] },
+  // Personal: optional tabs that each instance turns on in fleet.yaml (home NAS: credit; work PC: e.g. career).
+  // A group whose tabs are all off is not shown at all.
+  { id: "g-personal", label: "Personal", tabs: ["credit"] },
   { id: "g-sys", label: "設定", tabs: ["settings", "devreq", "guide"] },
 ];
 const groupOf = tabId => GROUPS.find(g => g.tabs.includes(tabId)) || GROUPS[0];
