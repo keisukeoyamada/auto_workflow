@@ -197,3 +197,7 @@ python -m nakama run furiwake --dry-run   # 最後の行が auth=subscription �
 ```bash
 pytest          # API を呼ばないオフラインテスト（権限ガード・設定・cron）
 ```
+
+## ライセンス
+
+[MIT](LICENSE)
