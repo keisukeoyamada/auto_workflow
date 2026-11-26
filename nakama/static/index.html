@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nakama</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085; --line: #e3e6eb;
+    --accent: #2f6fde; --accent-soft: #e8f0fd; --ok: #1f8a4c; --warn: #b26b00; --bad: #c4352b;
+    --code: #f1f3f6; --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --panel: #1a1e26; --text: #e6e9ef; --muted: #98a1b3; --line: #2a303c;
+      --accent: #6b9cff; --accent-soft: #1e2a42; --ok: #4cc583; --warn: #f0a63a; --bad: #ff6b60;
+      --code: #222733;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.6 system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif; }
+  header { display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+           padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: .02em; }
+  header .meta { color: var(--muted); font-size: 12px; display: flex; gap: 14px; flex-wrap: wrap; }
+  nav { display: flex; gap: 4px; padding: 8px 20px 0; flex-wrap: wrap; }
+  nav button { border: 0; background: none; color: var(--muted); padding: 8px 12px; cursor: pointer;
+               border-radius: 8px 8px 0 0; font: inherit; }
+  nav button.active { color: var(--accent); background: var(--panel); font-weight: 600; }
+  nav .badge { background: var(--bad); color: #fff; border-radius: 9px; padding: 0 6px; font-size: 11px; margin-left: 4px; }
+  main { padding: 16px 20px 40px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; cursor: pointer; }
+  .tile .label { color: var(--muted); font-size: 12px; }
+  .tile .value { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .meter { height: 6px; background: var(--line); border-radius: 3px; margin-top: 6px; overflow: hidden; }
+  .meter > div { height: 100%; background: var(--accent); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-bottom: 16px; }
+  .card h2 { font-size: 14px; margin: 0 0 10px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.num { font-variant-numeric: tabular-nums; }
+  .tablewrap { overflow-x: auto; }
+  .pill { display: inline-block; padding: 0 8px; border-radius: 9px; font-size: 12px; background: var(--code); color: var(--muted); }
+  .pill.open, .pill.new, .pill.running { background: var(--accent-soft); color: var(--accent); }
+  .pill.done, .pill.ok { color: var(--ok); }
+  .pill.waiting, .pill.escalated { color: var(--warn); }
+  .pill.off { color: var(--bad); }
+  button.btn { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 7px;
+               padding: 4px 10px; cursor: pointer; font: inherit; font-size: 13px; }
+  button.btn:hover { border-color: var(--accent); }
+  button.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.btn:disabled { opacity: .5; cursor: default; }
+  .split { display: grid; grid-template-columns: minmax(240px, 360px) 1fr; gap: 16px; }
+  @media (max-width: 760px) { .split { grid-template-columns: 1fr; } }
+  .list { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); max-height: 75vh; overflow: auto; }
+  .list .item { padding: 10px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .list .item:hover { background: var(--accent-soft); }
+  .list .item.active { background: var(--accent-soft); border-left: 3px solid var(--accent); }
+  .list .item .t { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .list .item .s { color: var(--muted); font-size: 12px; display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+  .viewer { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 20px; min-height: 300px; overflow-wrap: anywhere; }
+  .viewer .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px;
+                     padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+  .viewer .path { color: var(--muted); font-size: 12px; margin-right: auto; }
+  .md h1, .md h2, .md h3 { margin: 1em 0 .4em; line-height: 1.3; } .md h1 { font-size: 19px; } .md h2 { font-size: 16px; } .md h3 { font-size: 14px; }
+  .md blockquote { margin: 0 0 12px; padding: 8px 12px; border-left: 3px solid var(--warn); background: var(--code); border-radius: 0 6px 6px 0; }
+  .md pre, .md code { background: var(--code); border-radius: 6px; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12.5px; }
+  .md pre { padding: 10px 12px; overflow: auto; } .md code { padding: 1px 4px; } .md pre code { padding: 0; }
+  .md table { margin: 8px 0; } .md p { margin: 0 0 10px; }
+  .fm { font-size: 12px; color: var(--muted); background: var(--code); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; white-space: pre-wrap; }
+  textarea { width: 100%; min-height: 90px; padding: 10px; border: 1px solid var(--line); border-radius: 8px;
+             background: var(--panel); color: var(--text); font: inherit; }
+  pre.log { background: var(--code); padding: 12px; border-radius: 8px; overflow: auto; max-height: 75vh; font-size: 12px; margin: 0; }
+  .empty { color: var(--muted); padding: 20px; text-align: center; }
+  #toast { position: fixed; right: 16px; bottom: 16px; background: var(--text); color: var(--bg); padding: 10px 14px;
+           border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 80vw; }
+  #toast.show { opacity: .95; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Nakama</h1>
+  <div class="meta" id="hdr"></div>
+</header>
+<nav id="nav"></nav>
+<main id="main"></main>
+<div id="toast"></div>
+
+<script>
+const TOKEN = "__NAKAMA_TOKEN__";
+const TABS = [
+  { id: "home", label: "ダッシュボード" },
+  { id: "drafts", label: "下書き", kind: "drafts", badge: c => c.drafts },
+  { id: "action_items", label: "要対応", kind: "action_items", badge: c => c.action_items_open },
+  { id: "reports", label: "レポート", kind: "reports" },
+  { id: "inbox", label: "受信", kind: "inbox" },
+  { id: "leads", label: "リード", kind: "leads" },
+  { id: "opportunities", label: "商談", kind: "opportunities" },
+  { id: "assignments", label: "割り当て", kind: "assignments" },
+  { id: "requests", label: "変更依頼", kind: "requests", badge: c => c.requests_open },
+  { id: "knowledge", label: "ナレッジ", kind: "knowledge" },
+  { id: "log", label: "ログ" },
+];
+let state = { tab: location.hash.slice(1) || "home", overview: null, selected: {} };
+
+// ---------- utilities ----------
+async function api(path, body) {
+  const opt = { headers: { "X-Nakama-Token": TOKEN } };
+  if (body !== undefined) {
+    opt.method = "POST";
+    opt.headers["Content-Type"] = "application/json";
+    opt.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, opt);
+  const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove("show"), 3500);
+}
+const fmtTime = ts => new Date(ts * 1000).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+const usd = v => "$" + Number(v || 0).toFixed(2);
+const pill = (v, cls) => v ? `<span class="pill ${esc(cls ?? v)}">${esc(v)}</span>` : "";
+
+// Minimal, escape-first Markdown renderer (headings, quotes, lists, code, tables, bold, links-as-text).
+function renderMarkdown(src) {
+  const lines = esc(src).split(/\r?\n/);
+  let out = [], i = 0;
+  const inline = s => s.replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  while (i < lines.length) {
+    const l = lines[i];
+    if (l.startsWith("```")) {
+      const buf = []; i++;
+      while (i < lines.length && !lines[i].startsWith("```")) buf.push(lines[i++]);
+      out.push(`<pre><code>${buf.join("\n")}</code></pre>`); i++; continue;
+    }
+    if (/^&gt;/.test(l)) {
+      const buf = [];
+      while (i < lines.length && /^&gt;/.test(lines[i])) buf.push(inline(lines[i++].replace(/^&gt;\s?/, "")));
+      out.push(`<blockquote>${buf.join("<br>")}</blockquote>`); continue;
+    }
+    if (/^\|.*\|$/.test(l.trim())) {
+      const rows = [];
+      while (i < lines.length && /^\|.*\|$/.test(lines[i].trim())) rows.push(lines[i++].trim());
+      const cells = r => r.slice(1, -1).split("|").map(c => inline(c.trim()));
+      const body = rows.filter(r => !/^\|[\s:|-]+\|$/.test(r));
+      out.push("<div class='tablewrap'><table>" + body.map((r, k) =>
+        "<tr>" + cells(r).map(c => k === 0 ? `<th>${c}</th>` : `<td>${c}</td>`).join("") + "</tr>").join("") + "</table></div>");
+      continue;
+    }
+    const h = l.match(/^(#{1,3})\s+(.*)/);
+    if (h) { out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`); i++; continue; }
+    if (/^\s*[-*]\s+/.test(l)) {
+      const buf = [];
+      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) buf.push(`<li>${inline(lines[i++].replace(/^\s*[-*]\s+/, ""))}</li>`);
+      out.push(`<ul>${buf.join("")}</ul>`); continue;
+    }
+    if (l.trim() === "" || /^&lt;!--.*--&gt;$/.test(l.trim())) { i++; continue; }
+    const buf = [];
+    while (i < lines.length && lines[i].trim() !== "" && !/^(#{1,3}\s|```|&gt;|\s*[-*]\s|\|)/.test(lines[i])) buf.push(inline(lines[i++]));
+    out.push(`<p>${buf.join("<br>")}</p>`);
+  }
+  return out.join("\n");
+}
+function splitFrontMatter(text) {
+  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  return m ? [m[1], text.slice(m[0].length)] : ["", text];
+}
+// Draft body without the "do not send" summary block, ready to paste into a mailer.
+function sendableBody(text) {
+  const [, body] = splitFrontMatter(text);
+  return body.replace(/^(>.*\r?\n)+\s*/m, "").trim();
+}
+
+// ---------- rendering ----------
+function renderHeader() {
+  const o = state.overview; if (!o) return;
+  document.getElementById("hdr").innerHTML = [
+    o.owner && `オーナー: ${esc(o.owner)}`,
+    `認証: ${esc(o.auth)}`,
+    `本日 ${usd(o.spent)} / 予算 ${usd(o.budget)}`,
+    `更新 ${esc(o.now.slice(11, 16))} (${esc(o.timezone)})`,
+  ].filter(Boolean).map(s => `<span>${s}</span>`).join("");
+  document.getElementById("nav").innerHTML = TABS.map(t => {
+    const n = t.badge ? t.badge(o.counts) : 0;
+    return `<button data-tab="${t.id}" class="${state.tab === t.id ? "active" : ""}">${t.label}${n ? `<span class="badge">${n}</span>` : ""}</button>`;
+  }).join("");
+}
+
+function renderHome() {
+  const o = state.overview; if (!o) return;
+  const pct = o.budget ? Math.min(100, o.spent / o.budget * 100) : 0;
+  const tile = (label, value, tab, extra = "") =>
+    `<div class="tile" data-tab="${tab}"><div class="label">${label}</div><div class="value">${value}</div>${extra}</div>`;
+  const rows = o.agents.map(a => `
+    <tr>
+      <td><strong>${esc(a.name)}</strong>${a.advisor ? ' <span class="pill">+advisor</span>' : ""}</td>
+      <td>${esc(a.model.replace("claude-", ""))}${a.effort ? ` / ${esc(a.effort)}` : ""}</td>
+      <td>${a.schedule.map(esc).join("<br>")}</td>
+      <td>${a.running ? pill("実行中", "running") : a.enabled ? pill("有効", "ok") : pill("無効", "off")}</td>
+      <td>${a.last_success ? esc(a.last_success.replace("T", " ").slice(5, 16)) : "—"}</td>
+      <td class="num">${usd(a.cost_today)}</td>
+      <td><button class="btn" data-run="${esc(a.name)}" ${a.running ? "disabled" : ""}>今すぐ実行</button></td>
+    </tr>`).join("");
+  document.getElementById("main").innerHTML = `
+    <div class="tiles">
+      ${tile("レビュー待ちの下書き", o.counts.drafts, "drafts")}
+      ${tile("要対応（open）", o.counts.action_items_open, "action_items")}
+      ${tile("新着メール", o.counts.inbox_new, "inbox")}
+      ${tile("未処理の変更依頼", o.counts.requests_open, "requests")}
+      ${tile("本日のコスト", usd(o.spent), "home", `<div class="meter"><div style="width:${pct}%"></div></div>`)}
+    </div>
+    <div class="card"><h2>エージェント</h2><div class="tablewrap"><table>
+      <tr><th>名前</th><th>モデル</th><th>スケジュール (cron)</th><th>状態</th><th>最終成功</th><th>本日</th><th></th></tr>
+      ${rows}</table></div></div>
+    <div class="card"><h2>最新レポート</h2><div id="recent" class="md"><div class="empty">読み込み中…</div></div></div>`;
+  api("/api/list?kind=reports").then(items => {
+    document.getElementById("recent").innerHTML = items.length
+      ? items.slice(0, 3).map(r => `<div class="item" style="margin-bottom:12px"><div class="fm">${esc(r.name)}</div><div data-load="${esc(r.path)}"></div></div>`).join("")
+      : '<div class="empty">まだレポートはありません。上の「今すぐ実行」で試せます。</div>';
+    document.querySelectorAll("[data-load]").forEach(async el => {
+      try { el.innerHTML = renderMarkdown((await api("/api/file?path=" + encodeURIComponent(el.dataset.load))).content); }
+      catch (e) { el.textContent = e.message; }
+    });
+  }).catch(e => toast(e.message));
+}
+
+async function renderKind(tab) {
+  const main = document.getElementById("main");
+  const isRequests = tab.id === "requests";
+  main.innerHTML = `
+    ${isRequests ? `<div class="card"><h2>Coordinator に変更を依頼</h2>
+      <textarea id="reqtext" placeholder="例: Henji: 英語メールの結びは Thanks, にして"></textarea>
+      <div style="margin-top:8px"><button class="btn primary" id="reqsend">依頼する</button>
+      <span style="color:var(--muted);font-size:12px;margin-left:8px">次回の Coordinator 実行（最大15分後）で反映されます</span></div></div>` : ""}
+    <div class="split"><div class="list" id="list"><div class="empty">読み込み中…</div></div>
+    <div class="viewer" id="viewer"><div class="empty">左の一覧から選んでください</div></div></div>`;
+  let items = [];
+  try { items = await api("/api/list?kind=" + tab.kind); }
+  catch (e) { document.getElementById("list").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  const list = document.getElementById("list");
+  list.innerHTML = items.length ? items.map(it => {
+    const m = it.meta;
+    const sub = [m.status && pill(m.status), m.owner_action && pill(m.owner_action), m.owner && pill("担当 " + m.owner),
+                 m.priority && pill(m.priority), m.stage && pill(m.stage), m.agent && esc(m.agent), m.from && esc(m.from),
+                 esc(fmtTime(it.mtime))].filter(Boolean).join(" ");
+    return `<div class="item" data-path="${esc(it.path)}"><div class="t">${esc(it.title || it.name)}</div><div class="s">${sub}</div></div>`;
+  }).join("") : '<div class="empty">ありません</div>';
+  const sel = state.selected[tab.id];
+  if (sel && items.some(i => i.path === sel)) openFile(sel);
+  else if (items.length && window.innerWidth > 760) openFile(items[0].path);
+}
+
+async function openFile(path) {
+  state.selected[state.tab] = path;
+  document.querySelectorAll(".list .item").forEach(el => el.classList.toggle("active", el.dataset.path === path));
+  const viewer = document.getElementById("viewer");
+  try {
+    const f = await api("/api/file?path=" + encodeURIComponent(path));
+    const [fm, body] = path.endsWith(".json") ? ["", "```\n" + f.content + "\n```"] : splitFrontMatter(f.content);
+    const statusBtns = f.editable_status.map(s => `<button class="btn" data-status="${esc(s)}">${esc(s)} にする</button>`).join("");
+    const copyBtn = path.includes("/mail/drafts/") ? '<button class="btn primary" id="copy">本文をコピー（要約を除く）</button>' : "";
+    viewer.innerHTML = `
+      <div class="toolbar"><span class="path">${esc(path)}</span>${copyBtn}${statusBtns}</div>
+      ${fm ? `<div class="fm">${esc(fm)}</div>` : ""}
+      <div class="md">${renderMarkdown(body)}</div>`;
+    viewer.dataset.path = path;
+    viewer.dataset.raw = f.content;
+  } catch (e) {
+    viewer.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+async function renderLog() {
+  document.getElementById("main").innerHTML = `<div class="card"><h2>logs/nakama.log（末尾200行）
+    <button class="btn" id="logreload" style="float:right">再読み込み</button></h2><pre class="log" id="log">読み込み中…</pre></div>`;
+  try {
+    const { log } = await api("/api/log");
+    const el = document.getElementById("log");
+    el.textContent = log || "(空)"; el.scrollTop = el.scrollHeight;
+  } catch (e) { document.getElementById("log").textContent = e.message; }
+}
+
+async function render() {
+  const tab = TABS.find(t => t.id === state.tab) || TABS[0];
+  state.tab = tab.id;
+  renderHeader();
+  if (tab.id === "home") renderHome();
+  else if (tab.id === "log") renderLog();
+  else renderKind(tab);
+}
+
+async function refreshOverview() {
+  try { state.overview = await api("/api/overview"); }
+  catch (e) { toast("サーバーに接続できません: " + e.message); return; }
+  renderHeader();
+  if (state.tab === "home") renderHome();
+}
+
+// ---------- events ----------
+document.addEventListener("click", async ev => {
+  const t = ev.target.closest("[data-tab],[data-run],[data-path],[data-status],#copy,#reqsend,#logreload");
+  if (!t) return;
+  if (t.dataset.tab) { state.tab = t.dataset.tab; location.hash = state.tab; render(); return; }
+  if (t.dataset.run) {
+    if (!confirm(`${t.dataset.run} を今すぐ実行しますか？（API 利用 / サブスク枠を消費します）`)) return;
+    t.disabled = true;
+    try { toast((await api("/api/run", { agent: t.dataset.run })).message); }
+    catch (e) { toast(e.message); t.disabled = false; }
+    setTimeout(refreshOverview, 1500);
+    return;
+  }
+  if (t.dataset.path && t.classList.contains("item")) { openFile(t.dataset.path); return; }
+  if (t.dataset.status) {
+    const path = document.getElementById("viewer").dataset.path;
+    try { await api("/api/status", { path, status: t.dataset.status }); toast(`status: ${t.dataset.status}`); await refreshOverview(); render(); }
+    catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.id === "copy") {
+    try { await navigator.clipboard.writeText(sendableBody(document.getElementById("viewer").dataset.raw)); toast("コピーしました"); }
+    catch { toast("コピーできませんでした（ブラウザの権限を確認）"); }
+    return;
+  }
+  if (t.id === "reqsend") {
+    const text = document.getElementById("reqtext").value;
+    try { const r = await api("/api/request", { text }); toast("作成: " + r.path); await refreshOverview(); render(); }
+    catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.id === "logreload") renderLog();
+});
+window.addEventListener("hashchange", () => { state.tab = location.hash.slice(1) || "home"; render(); });
+
+refreshOverview().then(render);
+setInterval(refreshOverview, 15000);  // keep agent status / counts fresh
+</script>
+</body>
+</html>

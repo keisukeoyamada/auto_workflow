@@ -1,0 +1,16 @@
+{
+  "_comment": "Copy to config/mcp.json. ${VAR} is expanded from the environment (.env). Reference servers from config/fleet.yaml connectors as mcp:<name>. Server entries below are placeholders: replace with the MCP servers you actually use.",
+  "mcpServers": {
+    "slack": {
+      "type": "http",
+      "url": "${SLACK_MCP_URL}",
+      "headers": { "Authorization": "Bearer ${SLACK_MCP_TOKEN}" }
+    },
+    "gmail": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "<your-gmail-mcp-package>"],
+      "env": { "GMAIL_OAUTH_TOKEN": "${GMAIL_OAUTH_TOKEN}" }
+    }
+  }
+}

@@ -1,0 +1,40 @@
+# ---- Secrets / personal config (never commit) ----
+.env
+.env.*
+!.env.example
+config/*.yaml
+config/*.json
+!config/*.example.yaml
+!config/*.example.json
+
+# ---- Personal agent tuning (coordinator-managed overlays & history) ----
+agents/*/LOCAL.md
+agents/*/versions/
+
+# ---- Runtime data: knowledge base, customer data, logs ----
+knowledge/*
+!knowledge/.gitkeep
+!knowledge/README.md
+workspace/**
+!workspace/**/
+!workspace/**/.gitkeep
+!workspace/README.md
+logs/*
+!logs/.gitkeep
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ---- Local reference material (may be copyrighted) ----
+references/

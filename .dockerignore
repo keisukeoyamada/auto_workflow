@@ -1,0 +1,12 @@
+.env
+.env.*
+.git
+.venv
+venv
+__pycache__
+logs
+workspace
+knowledge
+config/*.yaml
+config/*.json
+references

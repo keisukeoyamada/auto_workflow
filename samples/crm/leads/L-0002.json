@@ -1,0 +1,15 @@
+{
+  "id": "L-0002",
+  "created_at": "2026-11-26T01:03:00+09:00",
+  "company": "Northwind Labs (sample)",
+  "contact_name": "Jordan Lee",
+  "email": "jordan@northwind.example.com",
+  "language": "en",
+  "employees": 6,
+  "existing_customer": false,
+  "source": "web_form",
+  "message": "Small design studio, 5 seats. Can we just sign up with a credit card today?",
+  "status": "new",
+  "owner": null, "priority": null, "category": null, "next_step": null,
+  "history": []
+}

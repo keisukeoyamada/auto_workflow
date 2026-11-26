@@ -1,0 +1,15 @@
+{
+  "id": "L-0003",
+  "created_at": "2026-11-26T06:40:00+09:00",
+  "company": "Hoshino Manufacturing (sample)",
+  "contact_name": "Tanaka",
+  "email": "tanaka@hoshino-mfg.example.jp",
+  "language": "ja",
+  "employees": 1200,
+  "existing_customer": false,
+  "source": "event",
+  "message": "全社展開（約800名）を来月から検討。SSO・監査ログ・SCIMが必須要件です。見積もりをいただけますか。",
+  "status": "new",
+  "owner": null, "priority": null, "category": null, "next_step": null,
+  "history": []
+}

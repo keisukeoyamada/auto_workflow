@@ -1,0 +1,23 @@
+# Team roster used by Furiwake for routing. Copy to config/team.yaml.
+members:
+  - id: me
+    name: "Your Name"
+    me: true                 # the owner; Sabaki/Henji work on this member's leads
+    languages: [ja, en]
+    segments: [smb, mid]
+    daily_capacity: 8
+  - id: teammate-a
+    name: "Teammate A"
+    languages: [ja]
+    segments: [smb]
+    daily_capacity: 10
+  - id: teammate-b
+    name: "Teammate B"
+    languages: [en, ja]
+    segments: [mid, enterprise]
+    daily_capacity: 6
+
+# Who is out on which dates (YYYY-MM-DD). Furiwake skips them that day.
+out_of_office:
+  - member: teammate-a
+    dates: []

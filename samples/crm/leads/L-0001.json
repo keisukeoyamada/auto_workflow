@@ -1,0 +1,15 @@
+{
+  "id": "L-0001",
+  "created_at": "2026-11-25T22:14:00+09:00",
+  "company": "Sorameki K.K. (sample)",
+  "contact_name": "Sato",
+  "email": "sato@sorameki.example.jp",
+  "language": "ja",
+  "employees": 40,
+  "existing_customer": false,
+  "source": "web_form",
+  "message": "40名のチームで導入を検討しています。TeamとEnterpriseのどちらが合うか知りたいです。展開前に社内のセキュリティ審査があります。請求書払いは可能でしょうか。",
+  "status": "new",
+  "owner": null, "priority": null, "category": null, "next_step": null,
+  "history": []
+}

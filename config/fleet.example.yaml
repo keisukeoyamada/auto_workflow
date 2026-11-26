@@ -1,0 +1,116 @@
+# Nakama fleet definition.
+# Copy to config/fleet.yaml (`python -m nakama init` does this) and edit.
+# config/fleet.yaml is gitignored, so personal values never get committed.
+
+timezone: Asia/Tokyo
+
+# Which credential the agents use:
+#   auto         -> subscription if CLAUDE_CODE_OAUTH_TOKEN is set, otherwise ANTHROPIC_API_KEY
+#   api_key      -> pay-as-you-go API billing (ANTHROPIC_API_KEY)
+#   subscription -> your own Claude Pro/Max plan via `claude setup-token` (CLAUDE_CODE_OAUTH_TOKEN)
+auth: auto
+
+owner:
+  name: "Your Name"
+  member_id: me            # must match a member id in config/team.yaml
+  signature: "Your Name / Your Company"
+  # When `chat` is an MCP connector, only this Slack user may request changes.
+  slack_user_id: ""
+
+limits:
+  # Hard stop for the whole fleet per calendar day (sum of run costs in logs/costs.jsonl).
+  daily_budget_usd: 5.0
+  # How late a missed run (PC asleep etc.) may still start, in seconds.
+  misfire_grace_seconds: 3600
+
+notify:
+  # Env var holding a Slack Incoming Webhook URL. Leave the env var unset to disable.
+  slack_webhook_env: SLACK_WEBHOOK_URL
+  # Optional: Slack user id to mention on action items (e.g. Claude Tag bot "U0XXXX").
+  action_item_mention: ""
+
+# Where each data source lives.
+#   local        -> files under workspace/ (default; works with zero integrations)
+#   mcp:<name>   -> MCP server <name> defined in config/mcp.json
+connectors:
+  crm: local          # leads + opportunities   (e.g. mcp:salesforce)
+  mail: local         # inbox / sent / drafts   (e.g. mcp:gmail)
+  calendar: local     # meetings + transcripts  (e.g. mcp:gcal)
+  chat: local         # change requests, reports (e.g. mcp:slack)
+
+# Cron format: "minute hour day month day_of_week".
+# Use day NAMES (mon-fri). Numeric weekdays differ between cron and APScheduler.
+agents:
+  furiwake:
+    enabled: true
+    model: claude-sonnet-5-5     # follows a written rulebook -> smaller model is enough
+    effort: low
+    schedule: ["30 7 * * mon-fri"]
+    max_turns: 40
+    max_budget_usd: 0.50
+    connectors: [crm]
+    writes: [workspace/crm/leads, workspace/assignments, workspace/reports, workspace/action_items]
+
+  sabaki:
+    enabled: true
+    model: claude-opus-5-5       # customer-facing writing in JA/EN
+    effort: medium
+    schedule: ["0 8 * * mon-fri"]
+    max_turns: 80
+    max_budget_usd: 1.50
+    connectors: [crm, mail]
+    writes: [workspace/crm/leads, workspace/mail/drafts, workspace/reports, workspace/action_items, knowledge]
+
+  henji:
+    enabled: true
+    model: claude-sonnet-5-5     # runs most often -> Sonnet + Opus advisor
+    effort: medium
+    schedule: ["5 9-18 * * mon-fri"]
+    max_turns: 60
+    max_budget_usd: 0.80
+    connectors: [mail]
+    # Skip the run (no API call at all) unless a file here changed since the last successful run.
+    # Remove this when mail is an MCP connector (there is nothing local to watch).
+    trigger_paths: [workspace/mail/inbox]
+    advisor:
+      model: claude-opus-5-5
+      effort: high
+    writes: [workspace/mail/inbox, workspace/mail/drafts, workspace/reports, workspace/action_items, knowledge]
+
+  shoudan:
+    enabled: true
+    model: claude-sonnet-5-5     # updates records by a written rulebook
+    effort: low
+    schedule: ["30 12 * * mon-fri", "30 17 * * mon-fri"]
+    max_turns: 50
+    max_budget_usd: 0.60
+    connectors: [crm, mail, calendar]
+    writes: [workspace/crm/opportunities, workspace/reports, workspace/action_items]
+
+  nokori:
+    enabled: true
+    model: claude-opus-5-5       # long transcripts, customer-facing output, learning loop
+    effort: medium
+    schedule: ["30 18 * * mon-fri"]
+    max_turns: 80
+    max_budget_usd: 1.50
+    connectors: [calendar, mail]
+    writes: [workspace/calendar, workspace/mail/drafts, workspace/reports, workspace/action_items, knowledge]
+
+  coordinator:
+    enabled: true
+    model: claude-opus-5-5       # edits other agents' instructions -> highest care
+    effort: high
+    schedule: ["*/15 8-22 * * *"]
+    max_turns: 40
+    max_budget_usd: 1.00
+    connectors: [chat]
+    trigger_paths: [workspace/requests, workspace/briefs]
+    writes: [agents/furiwake/LOCAL.md, agents/sabaki/LOCAL.md, agents/henji/LOCAL.md,
+             agents/shoudan/LOCAL.md, agents/nokori/LOCAL.md, knowledge,
+             workspace/requests, workspace/reports, workspace/action_items]
+
+  # Optional per-agent keys:
+  #   pin_version: 3                 # run agents/<name>/versions/v003.md instead of LOCAL.md
+  #   disallowed_tools: ["mcp__gmail__send_email"]   # block risky MCP tools explicitly
+  #   web: true                      # allow WebSearch / WebFetch (default: false)

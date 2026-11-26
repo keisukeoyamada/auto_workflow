@@ -1,0 +1,31 @@
+services:
+  nakama:
+    build:
+      context: .
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    image: nakama:local
+    container_name: nakama
+    restart: unless-stopped        # comes back after reboot as long as Docker starts
+    env_file: .env
+    environment:
+      TZ: ${TZ:-Asia/Tokyo}
+    # Low-RAM NAS: one agent run (bundled Claude Code CLI) needs a few hundred MB. Uncomment to cap it.
+    # mem_limit: 1g
+    logging:                       # keep docker logs from filling a small NAS disk
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    volumes:
+      # Everything personal lives on the host, so rebuilding the image never loses data.
+      - ./agents:/app/agents
+      - ./config:/app/config
+      - ./knowledge:/app/knowledge
+      - ./workspace:/app/workspace
+      - ./logs:/app/logs
+    # Dashboard at http://localhost:8765 . Inside the container it must bind 0.0.0.0;
+    # the port mapping below keeps it reachable from this host only.
+    command: ["serve", "--ui", "--host", "0.0.0.0"]
+    ports:
+      - "127.0.0.1:8765:8765"
+      # NAS / LAN access: use "8765:8765" and set NAKAMA_UI_PASSWORD + NAKAMA_UI_ALLOW_HOSTS in .env
