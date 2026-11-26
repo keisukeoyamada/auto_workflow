@@ -51,7 +51,7 @@ def _b64(text: str, enc: str = "utf-8") -> str:
 def test_parse_holder_column_and_skip_totals(cfg):
     rows = credit.parse_csv(CSV_ROWS, cfg)
     assert len(rows) == 5
-    assert rows[0] == {"date": "2026-10-18", "holder": "TARO YAMADA", "holder_key": "a",
+    assert rows[0] == {"date": "2026-10-18", "holder": "TARO YAMADA", "holder_key": "a", "card": "",
                        "merchant": "ＪＲ　えきねっと", "amount": 25160}
     assert rows[4]["holder_key"] == "b" and rows[4]["amount"] == -1001
 
@@ -84,7 +84,7 @@ def test_parts_per_split():
 def test_import_split_close_flow(cfg):
     now = datetime(2026, 10, 20, 9, 0)
     r = credit.import_csv("statement.csv", _b64(CSV_ROWS), now=now)
-    assert r == {"month": "202610", "rows": 5, "added": 5, "kept": 0, "dropped": 0}
+    assert r == {"month": "202610", "rows": 5, "added": 5, "kept": 0, "dropped": 0, "excluded": []}
     view = credit.month_view("202610")
     ids = {(x["merchant"], x["date"]): x["id"] for x in view["rows"]}
     assert len({x["id"] for x in view["rows"]}) == 5  # identical rows get distinct ids
@@ -132,3 +132,38 @@ def test_export_matches_sheet_layout(cfg):
     lines = out["csv"].lstrip("﻿").splitlines()
     assert lines[0] == "日付,誰,内容,状態,金額,A負担額,B負担額,共同から負担額,memo"
     assert lines[1].startswith("2026/10/18,TARO YAMADA,ＪＲ　えきねっと,,25160,0,0,25160")
+
+
+# Layout of a card company's activity CSV: member + card number columns, and the last bill's debit row.
+CSV_ACTIVITY = (
+    "ご利用日,データ処理日,ご利用内容,カード会員様名,会員番号 #,金額,海外通貨利用金額,換算レート\r\n"
+    "2026/11/19,2026/11/20,スーパー　食品,TARO YAMADA,-11111,\"2,615\",,\r\n"
+    "2026/11/18,2026/11/20,スーパー　食品,HANAKO YAMADA,-22222,\"1,633\",,\r\n"
+    "2026/11/11,2026/11/11,ポイント充当,TARO YAMADA,-11111,-534,,\r\n"
+    "2026/11/10,2026/11/10,前回分口座振替金額,TARO YAMADA,-11111,\"-507,113\",,\r\n"
+)
+
+
+def test_activity_layout_card_and_excluded_debit(cfg):
+    excluded = []
+    rows = credit.parse_csv(CSV_ACTIVITY, cfg, excluded)
+    assert [(r["holder_key"], r["card"], r["amount"]) for r in rows] == [("a", "11111", 2615), ("b", "22222", 1633),
+                                                                          ("a", "11111", -534)]
+    assert [x["amount"] for x in excluded] == [-507113]
+    r = credit.import_csv("activity.csv", _b64(CSV_ACTIVITY, "cp932"), now=datetime(2026, 11, 27))
+    assert (r["month"], r["rows"], len(r["excluded"])) == ("202611", 3, 1)
+    assert credit.month_view("202611")["total"]["amount"] == 2615 + 1633 - 534
+
+
+def test_reimport_keeps_input_when_member_matching_changes(cfg, monkeypatch):
+    unmatched = CFG | {"members": [{"label": "A", "match": ["NOBODY"]}, {"label": "B", "match": ["NOBODY2"]}]}
+    monkeypatch.setattr(credit, "load_fleet", lambda: SimpleNamespace(credit=unmatched))
+    credit.import_csv("a.csv", _b64(CSV_ACTIVITY), now=datetime(2026, 11, 27))
+    first = next(x for x in credit.month_view("202611")["rows"] if x["amount"] == 2615)  # TARO's row
+    assert first["holder_key"] == ""
+    credit.update_rows("202611", [first["id"]], {"split": "b", "memo": "note"})
+    monkeypatch.setattr(credit, "load_fleet", lambda: SimpleNamespace(credit=CFG))
+    r = credit.import_csv("a.csv", _b64(CSV_ACTIVITY), now=datetime(2026, 11, 27, 1))
+    assert (r["added"], r["kept"]) == (0, 3)
+    row = next(x for x in credit.month_view("202611")["rows"] if x["id"] == first["id"])
+    assert (row["holder_key"], row["split"], row["memo"]) == ("a", "b", "note")

@@ -217,6 +217,8 @@
   .crtable .crs.on { background: var(--accent); border-color: var(--accent); color: #fff; }
   .crtable input.crnum { width: 84px; text-align: right; padding: 2px 6px; }
   .crtable input.crmemo { width: 100%; min-width: 140px; padding: 2px 6px; }
+  .crcard { color: var(--muted); font-size: 11px; margin-left: 4px; }
+  @media (max-width: 760px) { .crcard { display: none; } }
   .crwho { display: inline-block; padding: 0 8px; border-radius: 9px; font-size: 12px; white-space: nowrap; }
   .c-blue { background: rgba(47, 111, 222, .16); } .c-pink { background: rgba(222, 64, 150, .16); }
   .c-green { background: rgba(31, 138, 76, .16); } .c-orange { background: rgba(178, 107, 0, .18); }
@@ -1231,7 +1233,7 @@ function crPaintTable() {
   const body = rows.map(r => `<tr class="${r.checked ? "crchecked" : ""}">
       <td class="sm-hide"><input type="checkbox" data-crsel="${esc(r.id)}" ${sel.has(r.id) ? "checked" : ""} ${lock}></td>
       <td style="white-space:nowrap">${esc(r.date.slice(5).replace("-", "/"))}</td>
-      <td class="sm-hide"><span class="crwho c-${color(r.holder_key)}" title="${esc(r.holder)}">${esc(who(r))}</span></td>
+      <td style="white-space:nowrap"><span class="crwho c-${color(r.holder_key)}" title="${esc(r.holder)}${r.card ? " / カード ･" + esc(r.card) : ""}">${esc(who(r))}</span>${r.card ? `<span class="crcard">･${esc(r.card)}</span>` : ""}</td>
       <td class="crm"><span class="crwho c-${color(r.holder_key)}" style="padding:0 3px;margin-right:4px"></span>${esc(r.merchant)}</td>
       <td style="text-align:center"><input type="checkbox" data-crcheck="${esc(r.id)}" ${r.checked ? "checked" : ""} ${lock} title="確認済み"></td>
       <td class="num">${yen(r.amount)}</td>
@@ -1250,11 +1252,11 @@ function crPaintTable() {
         <button class="btn" data-crbulk="b" ${sel.size ? "" : "disabled"}>${esc(mb.label)}</button>
         <button class="btn" data-crbulk="half" ${sel.size ? "" : "disabled"}>折半</button>
         <button class="btn" data-crbulk="check" ${sel.size ? "" : "disabled"}>確認済みにする</button></span>`}</div>
-    <div class="tablewrap"><table class="crtable" data-filtered="1"><tr><th class="sm-hide"><input type="checkbox" id="cr-selall" ${lock}></th><th>日付</th><th class="sm-hide">誰</th><th>内容</th><th>状態</th><th class="num">金額</th>
+    <div class="tablewrap"><table class="crtable" data-filtered="1"><tr><th class="sm-hide"><input type="checkbox" id="cr-selall" ${lock}></th><th>日付</th><th title="どのカードで支払ったか（振り分けの参考）">誰</th><th>内容</th><th>状態</th><th class="num">金額</th>
       <th>振り分け</th><th class="num sm-hide">${esc(ma.label)}負担額</th><th class="num sm-hide">${esc(mb.label)}負担額</th>
       <th class="num sm-hide">${esc(c.shared_label)}から負担額</th><th class="sm-hide">memo</th></tr>
       ${body || '<tr><td colspan="11">該当する行がありません</td></tr>'}</table></div>
-    <div class="cal-legend">振り分けを押さない行は ${esc(c.shared_label)}。「指定」で両者の負担額を直接入力（残りが ${esc(c.shared_label)}）。赤字 = 負担額の合計が金額を超えている行。</div>`;
+    <div class="cal-legend">「誰」= どのカードで払ったか（振り分けの参考）。振り分けを押さない行は ${esc(c.shared_label)}。「指定」で両者の負担額を直接入力（残りが ${esc(c.shared_label)}）。赤字 = 負担額の合計が金額を超えている行。</div>`;
 }
 async function crUpdate(ids, change) {
   try {
@@ -1282,7 +1284,7 @@ document.addEventListener("click", async ev => {
     let bin = ""; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
     try {
       const r = await api("/api/credit/import", { filename: file.name, data: btoa(bin), month: document.getElementById("cr-month").value.trim() });
-      toast(`${r.month} を取り込みました（${r.rows} 行・新規 ${r.added}・入力を保持 ${r.kept}${r.dropped ? `・消えた行 ${r.dropped}` : ""}）`);
+      toast(`${r.month} を取り込みました（${r.rows} 行・新規 ${r.added}・入力を保持 ${r.kept}${r.dropped ? `・消えた行 ${r.dropped}` : ""}${r.excluded.length ? `・明細でない行を除外 ${r.excluded.length}（${r.excluded.join(" / ")}）` : ""}）`);
       state.crMonth = r.month; state.crSel = new Set(); renderCredit(true);
     } catch (e) { toast(e.message); }
     return;

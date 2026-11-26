@@ -79,6 +79,7 @@ credit:
   shared_label: "共同"           # what pays the rest (e.g. a shared household budget)
   account_label: "引き落とし口座"
   closing_day: 19               # statement closing day; used to name the month (YYYYMM) of an upload
+  # exclude: ["前回分口座振替"]    # rows that are not purchases (this one is always excluded); add more if needed
   # csv:                        # extra header names, if your CSV's columns are named differently
   #   date: ["ご利用日"]
   #   merchant: ["ご利用店名"]

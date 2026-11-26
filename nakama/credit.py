@@ -39,8 +39,12 @@ DEFAULT_COLUMNS: dict[str, list[str]] = {
     "date": ["ご利用日", "利用日", "ご利用年月日", "利用年月日", "日付", "取引日"],
     "merchant": ["ご利用内容", "利用内容", "ご利用店名", "利用店名", "ご利用先", "利用先", "内容", "摘要", "店名"],
     "amount": ["ご利用金額", "利用金額", "金額", "ご利用金額(円)", "利用金額(円)", "金額(円)", "請求金額"],
-    "holder": ["ご利用者", "利用者", "カード会員", "カード会員名", "会員名", "名義", "使用者", "誰"],
+    "holder": ["ご利用者", "利用者", "カード会員", "カード会員名", "カード会員様名", "カード会員様氏名", "会員様名",
+               "会員名", "会員氏名", "名義", "使用者", "誰"],
+    "card": ["会員番号#", "会員番号", "カード番号", "カード番号下4桁", "カード下4桁"],  # optional: which card was used
 }
+# Rows that are not purchases (e.g. the previous statement's bank debit). fleet.yaml credit.exclude adds to these.
+DEFAULT_EXCLUDE = ["前回分口座振替"]
 
 _lock = threading.Lock()
 
@@ -153,14 +157,16 @@ def _holder_key(name: str, mems: list[dict[str, Any]]) -> str:
     return ""
 
 
-def parse_csv(text: str, cfg: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    """Statement rows: date, holder (raw), holder_key (a/b/''), merchant (as written), amount.
+def parse_csv(text: str, cfg: dict[str, Any] | None = None, excluded: list | None = None) -> list[dict[str, Any]]:
+    """Statement rows: date, holder (raw), holder_key (a/b/''), card (last digits or ''), merchant (as written), amount.
 
     Works with a holder column per row, or with section lines naming the card member
     (a line that matches a member and has no date/amount switches the current holder).
+    Rows whose merchant matches an exclude pattern (bank debit of the last bill etc.) go to `excluded`.
     """
     cfg = config() if cfg is None else cfg
     mems = members(cfg)
+    skip = [_norm(x) for x in [*DEFAULT_EXCLUDE, *(cfg.get("exclude") or [])] if str(x).strip()]
     rows = list(csv.reader(io.StringIO(text)))
     cols = None
     current = ("", "")
@@ -184,8 +190,14 @@ def parse_csv(text: str, cfg: dict[str, Any] | None = None) -> list[dict[str, An
                 current = (hit[0], _holder_key(hit[0], mems))
             continue  # totals, notes, blank lines
         holder = get("holder") or current[0]
-        out.append({"date": day, "holder": holder, "holder_key": _holder_key(holder, mems) or current[1],
-                    "merchant": get("merchant"), "amount": amount})
+        row_out = {"date": day, "holder": holder, "holder_key": _holder_key(holder, mems) or current[1],
+                   "card": re.sub(r"\D", "", unicodedata.normalize("NFKC", get("card")))[-5:],
+                   "merchant": get("merchant"), "amount": amount}
+        if any(x in _norm(row_out["merchant"]) for x in skip):
+            if excluded is not None:
+                excluded.append(row_out)
+            continue
+        out.append(row_out)
     if cols is None:
         first = next((r for r in rows if any(c.strip() for c in r)), [])
         raise ValueError("CSV の見出し行が見つかりません（日付・内容・金額の列が必要）。"
@@ -232,7 +244,8 @@ def _save(st: dict[str, Any]) -> None:
 
 
 def _row_id(r: dict[str, Any], n: int) -> str:
-    key = f"{r['date']}|{_norm(r['holder'])}|{_norm(r['merchant'])}|{r['amount']}|{n}"
+    # holder is not part of the id: a later fix to member matching must not orphan what was entered
+    key = f"{r['date']}|{_norm(r['merchant'])}|{r['amount']}|{n}"
     return hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
 
 
@@ -257,7 +270,8 @@ def import_csv(filename: str, data_b64: str, month: str = "", now: datetime | No
         raise ValueError("ファイルを読み込めませんでした") from exc
     if len(raw) > MAX_UPLOAD_BYTES:
         raise ValueError("ファイルが大きすぎます")
-    parsed = _with_ids(parse_csv(decode(raw), cfg))
+    excluded: list[dict[str, Any]] = []
+    parsed = _with_ids(parse_csv(decode(raw), cfg, excluded))
     month = _month_ok(month) if month else detect_month(parsed, cfg.get("closing_day"))
     now = now or datetime.now()
     with _lock:
@@ -271,9 +285,9 @@ def import_csv(filename: str, data_b64: str, month: str = "", now: datetime | No
         rows, kept = [], 0
         for r in parsed:
             prev = old.get(r["id"])
-            if prev:
+            if prev:  # keep what was entered; refresh what comes from the file
                 kept += 1
-                rows.append(prev)
+                rows.append(prev | {k: r[k] for k in ("id", "date", "holder", "holder_key", "card", "merchant", "amount")})
             else:
                 rows.append(r | {"split": "shared", "a": 0, "b": 0, "checked": False, "memo": ""})
         st["rows"] = rows
@@ -283,7 +297,8 @@ def import_csv(filename: str, data_b64: str, month: str = "", now: datetime | No
         (raw_dir / f"{month}-{now:%Y%m%d%H%M%S}.csv").write_bytes(raw)  # original kept for re-import
         _save(st)
     dropped = len(old) - kept
-    return {"month": month, "rows": len(rows), "added": len(rows) - kept, "kept": kept, "dropped": dropped}
+    return {"month": month, "rows": len(rows), "added": len(rows) - kept, "kept": kept, "dropped": dropped,
+            "excluded": [f"{x['date']} {x['merchant']} {x['amount']:,}" for x in excluded]}
 
 
 # ---------- calculation ----------
