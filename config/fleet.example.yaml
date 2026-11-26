@@ -26,8 +26,42 @@ limits:
 notify:
   # Env var holding a Slack Incoming Webhook URL. Leave the env var unset to disable.
   slack_webhook_env: SLACK_WEBHOOK_URL
+  # Env var holding a Teams "Workflows" webhook URL (post to a chat/channel). Unset = disabled.
+  teams_webhook_env: TEAMS_WEBHOOK_URL
   # Optional: Slack user id to mention on action items (e.g. Claude Tag bot "U0XXXX").
   action_item_mention: ""
+
+# Optional: meeting-notes -> Planner ticket pipeline in a synced folder (agent `kihyo`).
+# base = synced folder of the pipeline; layout = its sub-folder names (defaults shown)
+ticketing:
+  base: "C:/path/to/ticket_pipeline"
+  layout: {tickets: tickets, state: planner_state, minutes: minutes, roster: roster/roster.json, logs: logs}
+  owner_id: ""            # your id in roster/roster.json (for the dashboard "タスク" tab)
+  # Planner link for a task: open any task in Planner, copy its link, replace the task id with {id}.
+  # e.g. https://tasks.office.com/<tenant>/Home/Task/{id}
+  task_url: ""
+
+# Optional: license scenarios for the "コスト" tab (monthly = base_fee + extra - central_funding).
+# included: API-equivalent usage covered by base_fee (null = fully covered); overage_rate: charge per extra $1.
+cost_plans:
+  - name: "Plan A (flat)"
+    base_fee: null
+    central_funding: 0
+    included: null
+    overage_rate: 0
+
+# Optional: a hand-written ToDo note (e.g. Obsidian) shown in the task list and updated in its own notation
+# (□ = to do, ■ = done, ★ = highlight). Nakama only flips a box or inserts one "□..." line, with a backup.
+todo_note:
+  path: ""
+  add_section: "ASAP"
+
+# Overtime log + reminder (勤怠 > 残業). The reminder shows on business days from remind_at until today's entry exists.
+overtime:
+  enabled: true
+  remind_at: "18:00"
+  template: "【残業申請】{date}（{wd}） {start}〜{end}（{hours}h）
+理由: {reason}"
 
 # Where each data source lives.
 #   local        -> files under workspace/ (default; works with zero integrations)
@@ -37,12 +71,14 @@ connectors:
   mail: local         # inbox / sent / drafts   (e.g. mcp:gmail)
   calendar: local     # meetings + transcripts  (e.g. mcp:gcal)
   chat: local         # change requests, reports (e.g. mcp:slack)
+  attendance: local   # team attendance posts   (Teams thread / Loop pastes)
 
 # Cron format: "minute hour day month day_of_week".
 # Use day NAMES (mon-fri). Numeric weekdays differ between cron and APScheduler.
 agents:
   furiwake:
     enabled: true
+    skip_holidays: true        # weekday job: holidays from config/holidays.json
     model: claude-sonnet-5-5     # follows a written rulebook -> smaller model is enough
     effort: low
     schedule: ["30 7 * * mon-fri"]
@@ -53,6 +89,7 @@ agents:
 
   sabaki:
     enabled: true
+    skip_holidays: true        # weekday job: holidays from config/holidays.json
     model: claude-opus-5-5       # customer-facing writing in JA/EN
     effort: medium
     schedule: ["0 8 * * mon-fri"]
@@ -63,6 +100,7 @@ agents:
 
   henji:
     enabled: true
+    skip_holidays: true        # weekday job: holidays from config/holidays.json
     model: claude-sonnet-5-5     # runs most often -> Sonnet + Opus advisor
     effort: medium
     schedule: ["5 9-18 * * mon-fri"]
@@ -79,6 +117,7 @@ agents:
 
   shoudan:
     enabled: true
+    skip_holidays: true        # weekday job: holidays from config/holidays.json
     model: claude-sonnet-5-5     # updates records by a written rulebook
     effort: low
     schedule: ["30 12 * * mon-fri", "30 17 * * mon-fri"]
@@ -89,6 +128,7 @@ agents:
 
   nokori:
     enabled: true
+    skip_holidays: true        # weekday job: holidays from config/holidays.json
     model: claude-opus-5-5       # long transcripts, customer-facing output, learning loop
     effort: medium
     schedule: ["30 18 * * mon-fri"]
@@ -96,6 +136,41 @@ agents:
     max_budget_usd: 1.50
     connectors: [calendar, mail]
     writes: [workspace/calendar, workspace/mail/drafts, workspace/reports, workspace/action_items, knowledge]
+
+  kintai:
+    enabled: true
+    skip_holidays: true        # weekday job: holidays from config/holidays.json
+    model: claude-sonnet-5-5     # structured cross-check -> smaller model is enough
+    effort: low
+    # Runs only when something under workspace/attendance changed (paste, your own plan, sync).
+    schedule: ["45 8 * * mon-fri", "0 10-18 * * mon-fri"]
+    max_turns: 40
+    max_budget_usd: 0.40
+    connectors: [attendance]
+    trigger_paths: [workspace/attendance/mine.md, workspace/attendance/sources]
+    writes: [workspace/attendance/outbox, workspace/reports, workspace/action_items]
+
+  kihyo:
+    enabled: false
+    model: claude-opus-5-5       # dedup judgement over messy minutes -> highest care
+    effort: high
+    schedule: ["0 12,19 * * *"]  # 12:00 = am cycle, 19:00 = pm cycle (every day)
+    max_turns: 120
+    max_budget_usd: 3.00
+    helpers: [ticketing]         # OneDrive wait / planner_state filter / archive / promote tools
+    instructions_files: ["~/.claude/scheduled-tasks/<your-routine>/SKILL.md"]
+    writes: [workspace/reports, workspace/action_items, workspace/kihyo]
+
+  kikitori:
+    enabled: true
+    model: claude-sonnet-5-5     # sorting short notes -> smaller model is enough
+    effort: low
+    schedule: ["*/30 8-20 * * *"]
+    max_turns: 30
+    max_budget_usd: 0.30
+    # Runs only when a memo was added since the last run.
+    trigger_paths: [workspace/memos]
+    writes: [workspace/kikitori, workspace/memos, workspace/reports]
 
   coordinator:
     enabled: true
@@ -107,7 +182,7 @@ agents:
     connectors: [chat]
     trigger_paths: [workspace/requests, workspace/briefs]
     writes: [agents/furiwake/LOCAL.md, agents/sabaki/LOCAL.md, agents/henji/LOCAL.md,
-             agents/shoudan/LOCAL.md, agents/nokori/LOCAL.md, knowledge,
+             agents/shoudan/LOCAL.md, agents/nokori/LOCAL.md, agents/kintai/LOCAL.md, knowledge,
              workspace/requests, workspace/reports, workspace/action_items]
 
   # Optional per-agent keys:

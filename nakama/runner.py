@@ -23,7 +23,7 @@ from claude_agent_sdk import (
 
 from .config import AGENTS_DIR, LOGS_DIR, ROOT, WORKSPACE_DIR, AgentSpec, ConfigError, Fleet, load_fleet, mcp_servers_for
 from .guard import make_guard
-from .notify import post_to_slack
+from .notify import post_to_slack, post_to_teams
 from .prompt import build_system_prompt, build_user_prompt
 from .state import AgentBusy, agent_lock, changed_files, last_success, mark_success, record_cost, spend_on
 from .versioning import snapshot_all
@@ -31,6 +31,10 @@ from .versioning import snapshot_all
 log = logging.getLogger(__name__)
 
 BASE_TOOLS = ["Read", "Glob", "Grep", "Write", "Edit"]
+REVIEW_NOTE = (
+    "【レビューモード】この実行では外部への書き出しをしない。退避・昇格のツールは無く、同期フォルダ（BASE）"
+    "には書き込めない。成果物は追加指示で指定された workspace/ 配下だけに書くこと。"
+)
 WEB_TOOLS = ["WebSearch", "WebFetch"]
 SUBAGENT_TOOLS = ["Agent", "Task"]  # "Task" is the older name of the subagent tool
 
@@ -42,8 +46,32 @@ def _tool_lists(spec: AgentSpec, mcp_names: list[str]) -> tuple[list[str], list[
     return builtin, sorted(set(allowed))
 
 
-def build_options(spec: AgentSpec, fleet: Fleet) -> ClaudeAgentOptions:
-    mcp = mcp_servers_for(spec, fleet)
+def _helper_servers(spec: AgentSpec, fleet: Fleet, review: bool = False) -> tuple[dict, tuple, tuple]:
+    """In-process tool servers from `helpers:` plus the extra folders they grant to the guard."""
+    servers: dict = {}
+    extra_read: tuple = ()
+    extra_write: tuple = ()
+    for name in spec.helpers:
+        if name != "ticketing":
+            raise ConfigError(f"{spec.name}: unknown helper '{name}' (available: ticketing)")
+        from .helpers import ticketing
+
+        base = (fleet.ticketing or {}).get("base")
+        if not base:
+            raise ConfigError(f"{spec.name}: helpers [ticketing] needs `ticketing.base` in fleet.yaml")
+        paths = ticketing.Paths.from_config(fleet.ticketing)
+        if not paths.base.exists():
+            raise ConfigError(f"ticketing.base does not exist: {paths.base}")
+        servers[ticketing.SERVER_NAME] = ticketing.build_server(paths, allow_writes=not review)
+        extra_read += paths.read_roots
+        if not review:  # review mode writes only inside workspace/ (its draft goes to workspace/kihyo/manual/)
+            extra_write += paths.write_roots
+    return servers, extra_read, extra_write
+
+
+def build_options(spec: AgentSpec, fleet: Fleet, review: bool = False) -> ClaudeAgentOptions:
+    helper_servers, extra_read, extra_write = _helper_servers(spec, fleet, review)
+    mcp = {**mcp_servers_for(spec, fleet), **helper_servers}
     tools, allowed = _tool_lists(spec, list(mcp))
 
     agents = None
@@ -76,7 +104,7 @@ def build_options(spec: AgentSpec, fleet: Fleet) -> ClaudeAgentOptions:
         # Don't keep a second plaintext transcript in ~/.claude/projects; logs/runs/ is the record.
         extra_args={"no-session-persistence": None},
         agents=agents,
-        hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[make_guard(spec)])]},
+        hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[make_guard(spec, extra_read, extra_write)])]},
         stderr=lambda line: log.debug("[cli] %s", line),
     )
 
@@ -120,7 +148,8 @@ def _action_items() -> set[str]:
     return {p.name for p in (WORKSPACE_DIR / "action_items").glob("*.md")}
 
 
-async def run_agent(name: str, *, force: bool = False, dry_run: bool = False, extra: str | None = None) -> int:
+async def run_agent(name: str, *, force: bool = False, dry_run: bool = False, extra: str | None = None,
+                    review: bool = False) -> int:
     """Run one agent once. Returns a process-style exit code (0 = ok or skipped)."""
     fleet = load_fleet()
     if name not in fleet.agents:
@@ -133,6 +162,12 @@ async def run_agent(name: str, *, force: bool = False, dry_run: bool = False, ex
     if not spec.enabled and not force:
         log.info("%s is disabled; skipping", name)
         return 0
+    if spec.skip_holidays and not force:
+        from .bizdays import holidays
+
+        if now.date().isoformat() in holidays():
+            log.info("%s: today is a holiday (%s); skipping", name, holidays()[now.date().isoformat()]["name"])
+            return 0
     budget = float(fleet.limits.get("daily_budget_usd") or 0)
     spent = sum(spend_on(now.date().isoformat(), tz).values())
     if budget and spent >= budget and not force:
@@ -147,7 +182,9 @@ async def run_agent(name: str, *, force: bool = False, dry_run: bool = False, ex
 
     # Capture manual LOCAL.md edits as versions before anything runs.
     snapshot_all("manual edit detected before run")
-    options = build_options(spec, fleet)
+    options = build_options(spec, fleet, review)
+    if review:
+        extra = (REVIEW_NOTE + "\n\n" + (extra or "")).strip()
     prompt = build_user_prompt(spec, fleet, now, changed, extra)
 
     if dry_run:
@@ -220,11 +257,13 @@ async def run_agent(name: str, *, force: bool = False, dry_run: bool = False, ex
     for item in sorted(_action_items() - items_before):
         tag = f"<@{mention}> " if mention else ""
         post_to_slack(webhook, f"[action-needed] {tag}`workspace/action_items/{item}` ({name})")
+        post_to_teams(fleet.notify.get("teams_webhook_env"), f"要対応: workspace/action_items/{item}（{name}）", "📌 Nakama 要対応")
 
     if result.is_error:
         log.error("%s finished with error: %s %s", name, result.subtype, result.errors or "")
         return 1
     # Use the END time so files the agent itself edited don't re-trigger the next run.
-    mark_success(name, datetime.now(tz))
+    if not review:
+        mark_success(name, datetime.now(tz))
     log.info("%s: done in %d turns, $%.3f", name, result.num_turns, result.total_cost_usd or 0)
     return 0

@@ -26,6 +26,7 @@ LOCAL_CONNECTOR_PATHS: dict[str, list[str]] = {
     "mail": ["workspace/mail/inbox", "workspace/mail/sent", "workspace/mail/drafts"],
     "calendar": ["workspace/calendar"],
     "chat": ["workspace/requests", "workspace/reports", "workspace/briefs"],
+    "attendance": ["workspace/attendance/sources", "workspace/attendance/mine.md"],
 }
 
 
@@ -49,6 +50,12 @@ class AgentSpec:
     pin_version: int | None = None
     disallowed_tools: list[str] = field(default_factory=list)
     web: bool = False
+    # Do not run on holidays listed in config/holidays.json (weekday agents; cron cannot know holidays).
+    skip_holidays: bool = False
+    # Extra built-in helper tool bundles (e.g. ["ticketing"]; see nakama/helpers/).
+    helpers: list[str] = field(default_factory=list)
+    # Files appended to the system prompt on every run (e.g. an existing SKILL.md kept elsewhere).
+    instructions_files: list[str] = field(default_factory=list)
 
 
 AUTH_MODES = ("auto", "api_key", "subscription")
@@ -64,6 +71,10 @@ class Fleet:
     agents: dict[str, AgentSpec]
     source: Path
     auth: str = "auto"  # auto | api_key | subscription (see runner.resolve_auth)
+    ticketing: dict[str, Any] = field(default_factory=dict)  # settings for the "ticketing" helper
+    cost_plans: list[dict[str, Any]] = field(default_factory=list)  # license scenarios for the cost tab
+    todo_note: dict[str, Any] = field(default_factory=dict)  # hand-written ToDo note synced both ways
+    overtime: dict[str, Any] = field(default_factory=dict)  # overtime log / 18:00 reminder settings
 
 
 def _first_existing(*paths: Path) -> Path | None:
@@ -80,9 +91,9 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return data
 
 
-def load_fleet() -> Fleet:
-    """Load config/fleet.yaml, falling back to the committed example."""
-    path = _first_existing(CONFIG_DIR / "fleet.yaml", CONFIG_DIR / "fleet.example.yaml")
+def load_fleet(path: Path | None = None) -> Fleet:
+    """Load config/fleet.yaml, falling back to the committed example (or an explicit file to validate)."""
+    path = path or _first_existing(CONFIG_DIR / "fleet.yaml", CONFIG_DIR / "fleet.example.yaml")
     if path is None:
         raise ConfigError("config/fleet.yaml not found. Run `python -m nakama init`.")
     raw = _load_yaml(path)
@@ -104,6 +115,10 @@ def load_fleet() -> Fleet:
 
     return Fleet(
         auth=auth,
+        ticketing=raw.get("ticketing") or {},
+        cost_plans=raw.get("cost_plans") or [],
+        todo_note=raw.get("todo_note") or {},
+        overtime=raw.get("overtime") or {},
         timezone=raw.get("timezone", "UTC"),
         owner=raw.get("owner") or {},
         limits=raw.get("limits") or {},

@@ -4,7 +4,7 @@ Anthropic の記事「[日本の Anthropic BDR が Claude Managed Agents を活�
 
 > 📘 **使い方・データの保存先と送り先・コネクタの追加方法は [docs/GUIDE.md](docs/GUIDE.md)** にまとめています（ダッシュボードの「使い方」タブでも読めます）。
 
-1 つの役割だけを持つエージェント 6 体が、共有ナレッジベースを読み書きしながらスケジュール実行されます。成果物はすべて「下書き」で、送信・確定は人間が行います。
+1 つの役割だけを持つエージェント 6 体（＋記事にない追加の Kintai / Kihyo）が、共有ナレッジベースを読み書きしながらスケジュール実行されます。成果物はすべて「下書き」で、送信・確定は人間が行います。
 
 | エージェント | 役割 | モデル | 既定スケジュール（平日） |
 |---|---|---|---|
@@ -13,7 +13,88 @@ Anthropic の記事「[日本の Anthropic BDR が Claude Managed Agents を活�
 | **Henji**（返事） | 受信メールへの返信下書き（JA/EN）。難所だけ Opus アドバイザーに相談 | Sonnet + Opus advisor | 毎時 09:05–18:05（新着がなければ起動しない） |
 | **Shoudan**（商談） | やり取りから商談レコードを更新 | Sonnet | 12:30 / 17:30 |
 | **Nokori**（残り） | 会議要約＋フォローアップ下書き、下書き→送信版の差分学習 | Opus | 18:30 |
+| **Kintai**（勤怠・追加） | Teams / Loop の勤怠連絡のかぶり・穴チェック、自分の勤怠の貼り付け文作成 | Sonnet | 08:45 / 毎時（入力が変わったときだけ） |
+| **Kihyo**（起票・追加・任意） | 同期フォルダの議事メモから Planner 起票 JSON を作り、Power Automate を起動（手順は自分の SKILL.md を読み込む） | Opus | 12:00 / 19:00（毎日） |
 | **Coordinator** | 平易な言葉の変更依頼で各エージェントの指示とナレッジを更新 | Opus | 15 分ごと（依頼がなければ起動しない） |
+
+## 全体フロー
+
+```mermaid
+flowchart LR
+  subgraph IN["あなたが用意する入力"]
+    leads["リード<br/>workspace/crm/leads/*.json"]
+    inbox["受信メール<br/>workspace/mail/inbox/*.md"]
+    sent["送ったメール<br/>workspace/mail/sent/*.md"]
+    cal["会議メモ・文字起こし<br/>workspace/calendar/日付/*.md"]
+    opps["商談<br/>workspace/crm/opportunities/*.json"]
+    team["チーム・不在日<br/>config/team.yaml"]
+    req["変更依頼<br/>ダッシュボード / nakama request"]
+    att["勤怠: 自分の予定＋Teams/Loopの貼り付け<br/>workspace/attendance/"]
+  end
+
+  KB[("共有ナレッジ knowledge/<br/>rulebook / style-guide /<br/>product-facts / learnings")]
+
+  subgraph AG["エージェント（平日・自動実行）"]
+    F["Furiwake 07:30<br/>振り分け"]
+    S["Sabaki 08:00<br/>トリアージ＋初回メール"]
+    H["Henji 毎時<br/>返信下書き"]
+    SH["Shoudan 12:30/17:30<br/>商談更新"]
+    N["Nokori 18:30<br/>会議要約＋差分学習"]
+    K["Kintai 毎時<br/>勤怠かぶりチェック"]
+    C["Coordinator 15分毎<br/>指示・ナレッジ更新"]
+  end
+
+  subgraph OUT["出力（ダッシュボードで確認）"]
+    drafts["メール下書き<br/>mail/drafts"]
+    asg["割り当て<br/>assignments"]
+    act["要対応<br/>action_items"]
+    rep["日次レポート<br/>reports"]
+    kout["Teams/Loop 貼り付け文<br/>attendance/outbox"]
+  end
+
+  leads --> F --> S
+  team --> F
+  leads --> S
+  inbox --> H
+  inbox --> SH
+  sent --> SH
+  cal --> SH
+  opps <--> SH
+  cal --> N
+  sent --> N
+  req --> C
+  att --> K --> kout
+
+  KB -. 読む .-> F & S & H & SH & N
+  N -- 学びを追記 --> KB
+  C -- ルール更新 --> KB
+  C -- LOCAL.md 更新 --> AG
+
+  F --> asg
+  S & H & N --> drafts
+  AG --> act & rep
+  drafts -. あなたが確認して送信 .-> sent
+```
+
+### 入力はどこに置くか
+
+既定の `local` モードでは、エージェントは **`workspace/` 配下のファイルだけ** を読みます（実メールや CRM には自動では繋がりません）。`init --demo` で入るのは架空のサンプルです。
+
+| 入力 | 置き場所 | 使うエージェント | 実サービスにつなぐなら |
+|---|---|---|---|
+| リード | `workspace/crm/leads/*.json`（`status: "new"`） | Furiwake → Sabaki | `connectors.crm: mcp:salesforce` 等 |
+| 受信メール | `workspace/mail/inbox/*.md`（`status: new`） | Henji, Shoudan | `connectors.mail: mcp:gmail` 等 |
+| 送ったメール | `workspace/mail/sent/*.md` | Shoudan, Nokori（学習） | 同上 |
+| 会議メモ・文字起こし | `workspace/calendar/YYYY-MM-DD/*.md` | Nokori, Shoudan | `connectors.calendar: mcp:gcal` 等 |
+| 商談 | `workspace/crm/opportunities/*.json` | Shoudan | `connectors.crm` |
+| チーム・不在日 | `config/team.yaml` | Furiwake | — |
+| ルール・文体・製品情報 | `knowledge/*.md` | 全員 | — |
+| 勤怠 | 自分の予定: `workspace/attendance/mine.md`（ダッシュボード「勤怠」から追加）／チームの連絡: 同タブで Teams・Loop を貼り付け → `workspace/attendance/sources/` | Kintai | 下記「勤怠の自動取得」 |
+| 変更依頼 | ダッシュボードの「変更依頼」/ `python -m nakama request "..."` | Coordinator | `connectors.chat: mcp:slack` |
+
+> **勤怠の自動取得**: Teams は Power Automate で「チャネルのメッセージ → OneDrive のファイル」に書き出し、OneDrive 同期フォルダを `workspace/attendance/sources/` に向けるのが一番手軽（管理者同意が不要なことが多い）。返信まで取れるかはテナント・トリガー次第なので要検証。Loop は公開された書き込み API が見当たらないため、Kintai が作る貼り付け文を手で貼る運用。
+
+ファイル形式は [workspace/README.md](workspace/README.md)、MCP での接続手順は [docs/GUIDE.md](docs/GUIDE.md) の 6〜7 章を参照。
 
 ## 記事の構成とこのリポジトリの対応
 
@@ -124,10 +205,23 @@ python -m nakama ui              # 画面だけ起動 → http://localhost:8765
 python -m nakama serve --ui      # スケジューラと一緒に起動（常駐スクリプトと Docker はこちらが既定）
 # --open を付けるとブラウザも自動で開く（Windows / macOS の常駐スクリプトは付けて登録済み）
 ```
-- エージェント一覧（状態・最終成功・本日のコスト・「今すぐ実行」ボタン）を表示します。
-- 下書き / 要対応 / レポート / 受信 / リード / 商談 / 割り当て / ナレッジ / ログを閲覧できます。
-- 下書きは「本文をコピー（要約を除く）」でメーラーに貼れます。要対応と変更依頼は status を画面から変更できます。
-- 変更依頼は画面から送れます。Coordinator が次の実行で反映します。
+画面は 7 つのグループに分かれています（上の段でグループ、下の段でタブを選ぶ）。
+
+| グループ | 主な機能 |
+|---|---|
+| ダッシュボード | エージェントの関係図（待ち件数・エラー・実行中を色で表示、▶ で実行、▶ 全部 で一括）、自分のタスク、エスカレ欄（通知を 1 行ずつ、OK で既読、🤖 で相談）、メモ欄、不在カレンダー、今日のスケジュール |
+| タスク | 統合タスク一覧（Planner 起票履歴・ルーティン・手書き ToDo ノートを出典つきで。月の切り替え、✓ で完了、📅 で期日変更、🤖 で相談）、ノートのエディタ、ルーティン（営業日ベースの月表・状態・作業メモ・祝日一覧）、起票（任意の Kihyo の状態・手動起票の検証と承認） |
+| 対応 | 要対応・下書き・受信・メモ（Kikitori の振り分け提案をボタンで実行、メモの変遷）・変更依頼。完了したものは既定で非表示 |
+| 勤怠 | チームの不在のかぶりチェックと貼り付け文（Kintai）、残業の記録と申請文・18:00 リマインド |
+| 営業 | 記事のデモ用（リード・商談・割り当て） |
+| 記録 | レポート・ナレッジ・コスト（API 換算の実利用とライセンス月額の比較）・ログ |
+| 設定 | 設定ファイルの編集（保存前に検証・旧版を保存）、プロフィール、通知テスト、cron の読み方、要望とリリースノート、使い方 |
+
+- 右上の 💬 で、リポジトリを読んで答えるチャット（読み取り専用・チャットごとに履歴）を開けます。
+- すべての表で、見出しを押すと並び替え、上の 🔍 で絞り込み、セルを押すと行と列をハイライトします。
+- ヘッダーの「サンプルを表示」で、デモ用の架空データ（とそこから作られたもの）を隠せます。
+- 下書きは「本文をコピー（要約を除く）」でメーラーに貼れます。変更依頼は画面から送れ、Coordinator が次の実行で反映します。
+- 祝日（`config/holidays.json`、内閣府の CSV から取り込み可）は営業日の計算・ルーティン・エージェントへの「今日は何営業日目」に使われ、`skip_holidays: true` のエージェントは祝日に動きません。
 - セキュリティ:
   - 既定では `127.0.0.1` だけで待ち受けます。
   - API 呼び出しには起動ごとに発行するトークンが必要です。

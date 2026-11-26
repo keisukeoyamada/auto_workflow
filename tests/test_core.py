@@ -65,3 +65,11 @@ def test_api_key_auth_and_missing_credentials(monkeypatch):
 def test_system_prompt_includes_common_and_role():
     prompt = build_system_prompt(load_fleet().agents["henji"])
     assert "Nakama 共通ルール" in prompt and "Henji" in prompt
+
+
+def test_changed_files_accepts_single_file(tmp_path, monkeypatch):
+    from nakama import state
+
+    monkeypatch.setattr(state, "ROOT", tmp_path)
+    (tmp_path / "mine.md").write_text("x", encoding="utf-8")
+    assert state.changed_files(["mine.md"], None) == ["mine.md"]

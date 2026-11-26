@@ -89,7 +89,8 @@ def changed_files(paths: list[str], since: datetime | None) -> list[str]:
         base = ROOT / rel
         if not base.exists():
             continue
-        for p in base.rglob("*"):
+        # A trigger path may be a single file (e.g. workspace/attendance/mine.md) or a folder.
+        for p in [base] if base.is_file() else base.rglob("*"):
             if p.is_file() and p.name != ".gitkeep" and p.stat().st_mtime > cutoff:
                 found.append(p.relative_to(ROOT).as_posix())
     return sorted(found)

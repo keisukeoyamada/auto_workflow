@@ -85,7 +85,8 @@ def cmd_run(args: argparse.Namespace) -> int:
 async def run_agent_lazy(name: str, args: argparse.Namespace) -> int:
     from .runner import run_agent  # import here so `init`/`list` work before SDK install
 
-    return await run_agent(name, force=args.force, dry_run=args.dry_run, extra=args.extra)
+    return await run_agent(name, force=args.force, dry_run=args.dry_run, extra=args.extra,
+                           review=getattr(args, "review", False))
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
@@ -118,6 +119,21 @@ def _add_ui_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--host", default="127.0.0.1", help="bind address (0.0.0.0 inside Docker)")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--open", action="store_true", help="open the dashboard in the default browser")
+
+
+def cmd_run_all(args: argparse.Namespace) -> int:
+    """Run the named agents one after another with the normal checks (no --force)."""
+    code = 0
+    for name in args.agents:
+        ns = argparse.Namespace(force=False, dry_run=False, extra=None, review=False)
+        code = max(code, asyncio.run(run_agent_lazy(name, ns)))
+    return code
+
+
+def cmd_chat_turn(args: argparse.Namespace) -> int:
+    from .chat import run_turn
+
+    return run_turn(args.chat_id)
 
 
 def cmd_request(args: argparse.Namespace) -> int:
@@ -159,6 +175,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--force", action="store_true", help="ignore enabled/trigger/budget checks")
     p.add_argument("--dry-run", action="store_true", help="print prompts and options; no API call")
     p.add_argument("--extra", help="one-off extra instruction for this run")
+    p.add_argument("--review", action="store_true",
+                   help="review mode: no promote/archive tools, no writes outside workspace/")
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("serve", help="start the scheduler (foreground)")
@@ -169,6 +187,14 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("ui", help="serve only the web dashboard (http://localhost:8765)")
     _add_ui_args(p)
     p.set_defaults(func=cmd_ui)
+
+    p = sub.add_parser("run-all", help="(internal) run several agents in sequence with normal checks")
+    p.add_argument("agents", nargs="+")
+    p.set_defaults(func=cmd_run_all)
+
+    p = sub.add_parser("chat-turn", help="(internal) answer the pending message of a dashboard chat")
+    p.add_argument("chat_id")
+    p.set_defaults(func=cmd_chat_turn)
 
     p = sub.add_parser("request", help="queue a change request for the coordinator")
     p.add_argument("text")

@@ -136,6 +136,46 @@ status: new
 
 **方法 B：MCP サーバーでつなぐ（自動）** 次の「7. コネクタを追加する」を参照してください。
 
+### 勤怠（Teams / Loop との二重管理をやめる）
+
+**自分の勤怠は Nakama の `workspace/attendance/mine.md` を正とします。** Teams と Loop には、Kintai が作る文面を貼るだけにします。
+
+1. ダッシュボード「勤怠」タブで、自分の予定を追加します（mine.md に 1 行ずつ追記されます）。
+2. 同じタブに、Teams のスレッドや Loop の表をコピーして貼り付け、保存します（`sources/` に保存）。
+3. Kintai が次の実行で、かぶり・当番の穴・Teams と Loop のズレ・自分の予定の未反映をチェックします。結果は `outbox/<日付>.md` に出ます。
+4. outbox を開いて「Teams 投稿文をコピー」「Loop 貼り付け用をコピー」を押し、それぞれに貼ります。
+
+最初に `knowledge/attendance-rules.md` を自分のチームに合わせて書き換えてください。メンバー、別名、グループ、判定ルール、投稿書式を書くファイルです。
+
+**自動取得するなら**（未検証。テナントの設定しだい）
+- **Teams**: Power Automate で、チャネルのメッセージを OneDrive のファイルに書き出します。そのフォルダを同期して `workspace/attendance/sources/` に届くようにします。ファイル先頭に `source: teams` の front matter を付けてください。返信まで取得できるかはトリガー次第なので、実際に試して確認する必要があります。
+- **Microsoft Graph API** でも取得できます（[返信一覧 API](https://learn.microsoft.com/en-us/graph/api/chatmessage-list-replies)）。ただし `ChannelMessage.Read.All` に管理者の同意が必要です。
+- **Loop**: 公開された書き込み API が見当たらないので、貼り付けで運用します。
+
+同僚の不在理由（体調など）は個人情報です。Kintai は出力に理由を書かない指示になっています。それでも貼り付けた原文は Anthropic に送られるので、社内ルールで問題ないか確認してください。
+
+### Planner 起票パイプライン（Kihyo・任意）
+
+議事メモから Planner のタスクを起票する仕組みを、Claude アプリを立ち上げずに Nakama のサブスクトークンで回せます。
+
+- `config/fleet.yaml` に次を書きます。
+  - `ticketing.base`: tickets/・planner_state/ などがある同期フォルダ
+  - `ticketing.owner_id`: roster.json の自分の id
+  - `agents.kihyo` の `instructions_files`: 手順書（SKILL.md）のパス。手順書は Nakama にコピーせず、実行のたびにそのファイルを読みます。
+- Kihyo にシェルは渡しません。代わりに、BASE の外に出られない専用ツールを使います。
+  - `ensure_readable`: OneDrive を待つ
+  - `planner_state_summary` / `planner_state_grep`: open の抽出と、完了済みカードの逆引き
+  - `archive_ticket`: 退避
+  - `promote_ticket`: 昇格。検証してから、BOM なしで新規作成だけを行う
+- 書き込めるのは `tickets/draft/` と `logs/` だけです。PA を起動する `tickets/` 直下には `promote_ticket` だけが書けます。
+- 「タスク」タブには、起票履歴のうち自分が担当のものを最新の planner_state と照合して表示します。planner_state に担当者の情報が無いため、Planner で手作りしたカードは出ません。
+- 別の仕組み（Claude アプリのルーチンなど）と同時に動かすと二重起票になります。移行したら、古いほうは止めてください。
+- **手動起票**（「起票」タブ）: テキストを貼ると、Kihyo が昇格できない「レビューモード」で draft を作ります。続いて Nakama がコードで次を検証し、あなたがチェックを入れた項目だけを昇格させます。
+  - 形式、期日・優先度、roster にない担当者、planner_state にない Close 対象、draft 内での重複 → ✗（昇格不可）
+  - 未完了の同名カード、完了済みの同名カード、直近 7 日の起票、未割当 → ⚠（既定では外す）
+  - `tickets/` 直下に未処理のファイルがある間は昇格しません。PA が処理したかは、次に書き出される planner_state で確かめます。
+- 「今日の am/pm を再現（昇格なし）」は検証専用です。結果を定時の draft と並べて比べられます。
+
 ## 7. コネクタを追加する
 
 コネクタは「エージェントがどこからデータを取るか」の切り替えスイッチです。既定は全部 `local`（`workspace/` のファイル）です。

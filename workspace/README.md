@@ -16,7 +16,11 @@ workspace/
 ├── reports/                       各エージェントの実行レポート（Slack チャンネルの代わり）
 ├── action_items/                  人間 / Claude Tag へ引き渡す案件
 ├── requests/                      Coordinator への変更依頼（`python -m nakama request "..."`）
-└── briefs/                        製品・価格の朝のブリーフ
+├── briefs/                        製品・価格の朝のブリーフ
+└── attendance/                    勤怠（Kintai）
+    ├── mine.md                    自分の勤怠のマスター（ダッシュボード「勤怠」から追記）
+    ├── sources/<日時>-teams|loop.md  Teams スレッド / Loop 表の貼り付け（読み取り専用の入力）
+    └── outbox/YYYY-MM-DD.md       かぶりチェック結果と Teams / Loop への貼り付け文
 ```
 
 ## リード `crm/leads/<id>.json`
@@ -65,3 +69,13 @@ agent: henji         # drafts のみ: 作成したエージェント
   "close_date": null, "next_step": "...", "next_step_date": null,
   "last_activity": "2026-11-25", "notes": [] }
 ```
+
+## 勤怠 `attendance/`
+`mine.md`（自分の予定。これが正）:
+```markdown
+| 日付 | 種別 | 時間 | メモ |
+|---|---|---|---|
+| 2026-11-27 | 有休 | 終日 | |
+| 2026-12-03 | 時間変更 | 9:30-18:30 | |
+```
+`sources/*.md` は front matter に `source: teams` か `source: loop` を付け、本文はコピーした内容そのまま。メンバー・グループ・判定ルール・投稿書式は `knowledge/attendance-rules.md` に書く。
