@@ -22,6 +22,7 @@ RUN pip install --no-cache-dir .
 
 COPY agents/_shared ./agents/_shared
 COPY templates ./templates
+COPY docs ./docs
 COPY samples ./samples
 RUN chown -R ${UID}:${GID} /app
 

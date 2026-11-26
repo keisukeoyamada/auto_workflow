@@ -2,6 +2,8 @@
 
 Anthropic の記事「[日本の Anthropic BDR が Claude Managed Agents を活用して日々の業務をどのように運営しているか](https://claude.com/ja/resources/articles/how-an-anthropic-japan-business-development-representative-runs-his-day)」のワークフローを、**セルフホスト（自分の PC / コンテナ）で再現する** ためのテンプレートです。
 
+> 📘 **使い方・データの保存先と送り先・コネクタの追加方法は [docs/GUIDE.md](docs/GUIDE.md)** にまとめています（ダッシュボードの「使い方」タブでも読めます）。
+
 1 つの役割だけを持つエージェント 6 体が、共有ナレッジベースを読み書きしながらスケジュール実行されます。成果物はすべて「下書き」で、送信・確定は人間が行います。
 
 | エージェント | 役割 | モデル | 既定スケジュール（平日） |
@@ -56,7 +58,7 @@ Anthropic の記事「[日本の Anthropic BDR が Claude Managed Agents を活�
 ### 0. 必要なもの
 - 次のどちらか 1 つ（下の「認証方式」を参照）
   - Claude API キー（[Claude Console](https://console.anthropic.com/) で発行。使った分だけ課金）
-  - 自分の Claude サブスクリプション（Pro / Max）から `claude setup-token` で発行したトークン
+  - Claude のサブスクリプション（個人の Pro / Max、会社の Team / Enterprise）から `claude setup-token` で発行したトークン（手順は [docs/GUIDE.md](docs/GUIDE.md) の 4 章）
 - Python 3.10+ **または** Docker（Docker Engine / Docker Desktop / Podman）
 
 ### 1. ネイティブで試す（まずはこれ）

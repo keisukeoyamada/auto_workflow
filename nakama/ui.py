@@ -32,6 +32,7 @@ from .state import LOCK_DIR, STALE_LOCK_SECONDS, last_success, spend_on
 log = logging.getLogger(__name__)
 
 INDEX_HTML = Path(__file__).with_name("static") / "index.html"
+GUIDE_MD = ROOT / "docs" / "GUIDE.md"
 READABLE_ROOTS = (WORKSPACE_DIR, KNOWLEDGE_DIR)
 # kind -> (folder, glob)
 KINDS = {
@@ -142,7 +143,9 @@ def _is_running(agent: str) -> bool:
 
 def _auth_label(fleet) -> str:
     has_token = bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip())
-    has_key = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
+    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    has_token = has_token or key.startswith("sk-ant-oat")  # mis-pasted token; runner fixes this up
+    has_key = bool(key) and not key.startswith("sk-ant-oat")
     mode = fleet.auth if fleet.auth != "auto" else ("subscription" if has_token else "api_key")
     ready = has_token if mode == "subscription" else has_key
     return mode if ready else f"{mode} (未設定)"
@@ -356,6 +359,8 @@ class _Handler(BaseHTTPRequestHandler):
                 return {"path": q["path"], "content": path.read_text(encoding="utf-8", errors="replace"),
                         "editable_status": sorted(_editable(path))}
             self._dispatch(read)
+        elif url.path == "/api/guide":
+            self._dispatch(lambda: {"content": GUIDE_MD.read_text(encoding="utf-8")})
         elif url.path == "/api/log":
             self._dispatch(lambda: {"log": tail_log()})
         else:

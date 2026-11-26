@@ -56,3 +56,5 @@ def test_api_requires_token_and_local_host(server):
     status, body = _get(server, "/")
     assert status == 200 and token.encode() in body                                   # page carries the token
     assert _get(server, "/api/file?path=.env", {"X-Nakama-Token": token})[0] == 403
+    status, body = _get(server, "/api/guide", {"X-Nakama-Token": token})
+    assert status == 200 and "使い方ガイド" in json.loads(body)["content"]

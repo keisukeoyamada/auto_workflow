@@ -73,6 +73,8 @@ def build_options(spec: AgentSpec, fleet: Fleet) -> ClaudeAgentOptions:
         mcp_servers=mcp,
         strict_mcp_config=True,         # ignore any MCP config on the host
         setting_sources=[],             # ignore ~/.claude and project settings -> reproducible runs
+        # Don't keep a second plaintext transcript in ~/.claude/projects; logs/runs/ is the record.
+        extra_args={"no-session-persistence": None},
         agents=agents,
         hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[make_guard(spec)])]},
         stderr=lambda line: log.debug("[cli] %s", line),
@@ -88,6 +90,10 @@ def resolve_auth(fleet: Fleet) -> str:
     for var in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"):
         if not os.environ.get(var, "").strip():
             os.environ.pop(var, None)  # blank values from .env count as "not set"
+    # Common mistake: a `setup-token` OAuth token (sk-ant-oat...) pasted as the API key.
+    if os.environ.get("ANTHROPIC_API_KEY", "").startswith("sk-ant-oat"):
+        log.warning("ANTHROPIC_API_KEY holds an OAuth token; using it as CLAUDE_CODE_OAUTH_TOKEN instead")
+        os.environ.setdefault("CLAUDE_CODE_OAUTH_TOKEN", os.environ.pop("ANTHROPIC_API_KEY"))
     has_key = "ANTHROPIC_API_KEY" in os.environ
     has_token = "CLAUDE_CODE_OAUTH_TOKEN" in os.environ
 

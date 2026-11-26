@@ -103,6 +103,7 @@ const TABS = [
   { id: "requests", label: "変更依頼", kind: "requests", badge: c => c.requests_open },
   { id: "knowledge", label: "ナレッジ", kind: "knowledge" },
   { id: "log", label: "ログ" },
+  { id: "guide", label: "使い方" },
 ];
 let state = { tab: location.hash.slice(1) || "home", overview: null, selected: {} };
 
@@ -288,12 +289,24 @@ async function renderLog() {
   } catch (e) { document.getElementById("log").textContent = e.message; }
 }
 
+async function renderGuide() {
+  const main = document.getElementById("main");
+  main.innerHTML = '<div class="viewer md" id="guide"><div class="empty">読み込み中…</div></div>';
+  try {
+    const { content } = await api("/api/guide");
+    // Allow http(s) links in the guide only; everything else stays escaped text.
+    document.getElementById("guide").innerHTML = renderMarkdown(content)
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  } catch (e) { document.getElementById("guide").innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+
 async function render() {
   const tab = TABS.find(t => t.id === state.tab) || TABS[0];
   state.tab = tab.id;
   renderHeader();
   if (tab.id === "home") renderHome();
   else if (tab.id === "log") renderLog();
+  else if (tab.id === "guide") renderGuide();
   else renderKind(tab);
 }
 
