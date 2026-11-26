@@ -167,3 +167,63 @@ def test_reimport_keeps_input_when_member_matching_changes(cfg, monkeypatch):
     assert (r["added"], r["kept"]) == (0, 3)
     row = next(x for x in credit.month_view("202611")["rows"] if x["id"] == first["id"])
     assert (row["holder_key"], row["split"], row["memo"]) == ("a", "b", "note")
+
+
+def _workbook() -> bytes:
+    """Same shape as a hand-made sheet: totals row, header, formulas without cached values."""
+    import io
+
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "202609"
+    ws.append(["ご請求金額 ￥5,040 お支払い日 2026/10/13", None, None, "合計>>>>", "=SUM(E3:E99)", None, None, None,
+               "=H1-J1", 1000, "<<口座の残り"])
+    ws.append(["日付", "誰", "内容", "状態", "金額", "A負担額", "B負担額", "共同から負担額", "memo"])
+    ws.append([datetime(2026, 9, 1), "TARO YAMADA", "スーパー 食品", None, 1000, None, None, "=E3-(F3+G3)"])
+    ws.append([datetime(2026, 9, 2), "TARO YAMADA", "JR えきねっと 東京都 渋谷区", None, 2000, "=E4/2", "=$E$4/2", "=E4-(F4+G4)", "割り勘"])
+    ws.append([datetime(2026, 9, 3), "HANAKO YAMADA", "服 店", None, 1540, None, "=E5", "=E5-(F5+G5)"])
+    ws.append([datetime(2026, 9, 4), "TARO YAMADA", "百貨店", None, 500, 300, 300, "=E6-(F6+G6)"])
+    other = wb.create_sheet("memo")
+    other.append(["日付", "用途区分", "内容"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_workbook_imports_closed_history_with_formulas(cfg):
+    r = credit.import_csv("book.xlsx", base64.b64encode(_workbook()).decode(), now=datetime(2026, 11, 27))
+    assert r["month"] == "202609"
+    assert r["workbook"]["imported"] == [{"month": "202609", "rows": 4}]
+    assert [x["sheet"] for x in r["workbook"]["skipped"]] == ["memo"]
+    v = credit.month_view("202609")
+    assert v["closed"] and v["billed"] == 5040 and v["balance"] == 1000
+    split = {x["merchant"]: (x["split"], x["a"], x["b"]) for x in v["rows"]}
+    assert split == {"スーパー 食品": ("shared", 0, 0), "JR えきねっと 東京都 渋谷区": ("half", 1000, 1000),
+                     "服 店": ("b", 0, 1540), "百貨店": ("custom", 300, 300)}
+    assert v["statement_total"] == 5040 and v["can_close"]
+    # importing again never overwrites a month that exists
+    with pytest.raises(ValueError, match="取り込める月がありません"):
+        credit.import_csv("book.xlsx", base64.b64encode(_workbook()).decode())
+
+
+def test_hints_from_past_months(cfg):
+    credit.import_csv("book.xlsx", base64.b64encode(_workbook()).decode(), now=datetime(2026, 11, 27))
+    credit.import_csv("statement.csv", _b64(CSV_ROWS), now=datetime(2026, 11, 27))  # 202610
+    rows = {x["merchant"]: x["hint"] for x in credit.month_view("202610")["rows"]}
+    assert rows["ＪＲ　えきねっと"]["split"] == "half"  # same shop, different trailing place name
+    assert rows["スーパー　食品"] == {"split": "shared", "month": "202609", "same": 1, "count": 1}
+    assert rows["返品"] is None
+    assert all(x["hint"] is None for x in credit.month_view("202609")["rows"])  # only earlier months count
+
+
+def test_exclude_row_from_split_but_not_from_bill(cfg):
+    credit.import_csv("activity.csv", _b64(CSV_ACTIVITY), now=datetime(2026, 11, 27))
+    v = credit.set_meta("202611", billed="3714", balance="0")
+    point = next(x for x in v["rows"] if x["amount"] == -534)
+    v = credit.update_rows("202611", [point["id"]], {"excluded": True})
+    assert v["total"]["amount"] == 2615 + 1633 and v["excluded"] == {"count": 1, "amount": -534}
+    assert v["statement_total"] == 3714 and not any("請求額" in p for p in v["problems"])
+    assert v["unchecked"] == 2  # an excluded row needs no check
+    assert "除外" in credit.export_csv("202611")["csv"]

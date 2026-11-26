@@ -63,7 +63,7 @@ overtime:
   template: "【残業申請】{date}（{wd}） {start}〜{end}（{hours}h）
 理由: {reason}"
 
-# Credit card statement split (家計 > クレジット精算). Off unless enabled.
+# Credit card statement split (Personal > クレジット精算). Off unless enabled.
 # Upload the card company's statement CSV each month, decide per row who pays
 # (shared budget by default / member A / member B / half / typed amounts), enter the debit
 # account balance, and the tab shows how much each side deposits. Data: workspace/credit/ (git-ignored).
