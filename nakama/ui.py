@@ -217,6 +217,7 @@ def overview(samples: bool = True) -> dict:
             "my_tasks_open": my_open,
         },
         "has_ticketing": bool((fleet.ticketing or {}).get("base")),
+        "features": {"credit": bool((fleet.credit or {}).get("enabled"))},
         "queues": _queues(fleet, samples),
     }
 
@@ -1640,6 +1641,15 @@ class _Handler(BaseHTTPRequestHandler):
             self._dispatch(lambda: overtime.month_summary(_month_or_current(q.get("month", ""))))
         elif url.path == "/api/memo/history":
             self._dispatch(memo_history)
+        elif url.path == "/api/credit/months":
+            from . import credit
+            self._dispatch(credit.months)
+        elif url.path == "/api/credit/month":
+            from . import credit
+            self._dispatch(lambda: credit.month_view(q.get("month", "")))
+        elif url.path == "/api/credit/export":
+            from . import credit
+            self._dispatch(lambda: credit.export_csv(q.get("month", "")))
         elif url.path == "/api/routines/history":
             from . import routines
             self._dispatch(lambda: {"history": routines.history(q.get("id", ""), 6, _month_or_current(q.get("month", "")))})
@@ -1727,6 +1737,24 @@ class _Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/holidays/import":
             from . import bizdays
             self._dispatch(bizdays.import_cao_csv)
+        elif url.path == "/api/credit/import":
+            from . import credit
+            self._dispatch(lambda: credit.import_csv(str(body.get("filename", "")), str(body.get("data", "")),
+                                                     str(body.get("month", "") or "")))
+        elif url.path == "/api/credit/update":
+            from . import credit
+            self._dispatch(lambda: credit.update_rows(str(body.get("month", "")), list(body.get("ids") or []),
+                                                      dict(body.get("change") or {})))
+        elif url.path == "/api/credit/meta":
+            from . import credit
+            meta = {k: body[k] for k in ("balance", "billed") if k in body}
+            self._dispatch(lambda: credit.set_meta(str(body.get("month", "")), **meta))
+        elif url.path == "/api/credit/close":
+            from . import credit
+            self._dispatch(lambda: credit.close(str(body.get("month", "")), bool(body.get("closed"))))
+        elif url.path == "/api/credit/delete":
+            from . import credit
+            self._dispatch(lambda: credit.delete_month(str(body.get("month", ""))))
         elif url.path == "/api/memo/apply":
             self._dispatch(lambda: apply_memo_item(str(body.get("memo", "")), int(body.get("index", -1)), str(body.get("action", ""))))
         elif url.path == "/api/memo":

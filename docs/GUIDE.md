@@ -40,6 +40,7 @@
 | `workspace/action_items/` | 要対応（人の判断待ち） | Markdown | 全エージェント | 管理外 |
 | `workspace/reports/` | 毎回の実行レポート | Markdown | ランナー | 管理外 |
 | `workspace/requests/` | 変更依頼 | Markdown | あなた（画面 / `request`） | 管理外 |
+| `workspace/credit/` | カード明細（取り込んだ CSV・振り分け・書き出し） | CSV / JSON | あなた（画面） | 管理外 |
 | `knowledge/` | ルール・文体・製品情報・学び | Markdown | あなた＋エージェント | 管理外 |
 | `agents/<名前>/LOCAL.md` | あなた用のチューニング | Markdown | あなた＋Coordinator | 管理外 |
 | `agents/<名前>/versions/` | LOCAL.md の過去の版 | Markdown | 自動 | 管理外 |
@@ -175,6 +176,21 @@ status: new
   - 未完了の同名カード、完了済みの同名カード、直近 7 日の起票、未割当 → ⚠（既定では外す）
   - `tickets/` 直下に未処理のファイルがある間は昇格しません。PA が処理したかは、次に書き出される planner_state で確かめます。
 - 「今日の am/pm を再現（昇格なし）」は検証専用です。結果を定時の draft と並べて比べられます。
+
+### クレジット精算（家計・任意）
+
+カード明細を「誰が負担するか」で振り分けて、各自と共同からの入金額を出すタブです。エージェントは使わず、明細が外部（Claude を含む）に送られることはありません。
+
+1. `config/fleet.yaml` に `credit:` を書き、`enabled: true` にする（書き方は `config/fleet.example.yaml`）。2 人の表示名・色と、CSV 上のカード会員名（`match`）を設定する。
+2. 毎月、カード会社のサイトから明細を CSV でダウンロードし、「家計 > クレジット精算」で取り込む。締め月（YYYYMM）は利用日と `closing_day` から自動で決まる（入力して上書きも可）。
+3. 行ごとに 共同 / A / B / 折半 / 指定 を選ぶ（何も押さなければ共同）。見終わった行は「状態」にチェック。複数行を選んでまとめて振り分けることもできる。
+4. 引き落とし口座の残高を入れると「共同からの入金額 = 共同の負担 − 残高」が出る。請求額を入れると明細の合計と突き合わせる。
+5. 全行が確認済みになったら「確定」。`workspace/credit/exports/<月>.csv` にも書き出される（Excel で開ける）。
+
+- 同じ月の CSV を取り込み直しても、入力済みの振り分け・状態・memo は残ります（日付・会員・内容・金額で照合）。
+- CSV の列名が違って読めないときは、`credit.csv` に列名を足してください。PDF は読み込めません。
+- 取り込んだ元のファイルは `workspace/credit/raw/` に残ります。リポジトリでは `*.csv` `*.pdf` `*.xlsx` も `.gitignore` しているので、どこに置いてもコミットされません。
+- NAS などで LAN に公開するときは、`.env` に `NAKAMA_UI_PASSWORD` と `NAKAMA_UI_ALLOW_HOSTS` を必ず設定してください。
 
 ## 7. コネクタを追加する
 

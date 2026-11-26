@@ -75,6 +75,7 @@ class Fleet:
     cost_plans: list[dict[str, Any]] = field(default_factory=list)  # license scenarios for the cost tab
     todo_note: dict[str, Any] = field(default_factory=dict)  # hand-written ToDo note synced both ways
     overtime: dict[str, Any] = field(default_factory=dict)  # overtime log / 18:00 reminder settings
+    credit: dict[str, Any] = field(default_factory=dict)  # credit card statement split tab (off by default)
 
 
 def _first_existing(*paths: Path) -> Path | None:
@@ -119,6 +120,7 @@ def load_fleet(path: Path | None = None) -> Fleet:
         cost_plans=raw.get("cost_plans") or [],
         todo_note=raw.get("todo_note") or {},
         overtime=raw.get("overtime") or {},
+        credit=raw.get("credit") or {},
         timezone=raw.get("timezone", "UTC"),
         owner=raw.get("owner") or {},
         limits=raw.get("limits") or {},
