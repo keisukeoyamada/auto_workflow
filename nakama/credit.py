@@ -16,6 +16,7 @@ The feature is off unless fleet.yaml sets `credit.enabled: true`.
 """
 from __future__ import annotations
 
+import ast
 import base64
 import csv
 import hashlib
@@ -270,6 +271,8 @@ def import_csv(filename: str, data_b64: str, month: str = "", now: datetime | No
         raise ValueError("ファイルを読み込めませんでした") from exc
     if len(raw) > MAX_UPLOAD_BYTES:
         raise ValueError("ファイルが大きすぎます")
+    if filename.lower().endswith((".xlsx", ".xlsm")):
+        return import_workbook(filename, raw, cfg, now)
     excluded: list[dict[str, Any]] = []
     parsed = _with_ids(parse_csv(decode(raw), cfg, excluded))
     month = _month_ok(month) if month else detect_month(parsed, cfg.get("closing_day"))
@@ -301,10 +304,194 @@ def import_csv(filename: str, data_b64: str, month: str = "", now: datetime | No
             "excluded": [f"{x['date']} {x['merchant']} {x['amount']:,}" for x in excluded]}
 
 
+# ---------- past months from a hand-made workbook ----------
+
+def _arith(expr: str) -> float:
+    """Evaluate + - * / and parentheses over numbers only (no names, no calls)."""
+    def ev(n: ast.AST) -> float:
+        if isinstance(n, ast.Expression):
+            return ev(n.body)
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)) and not isinstance(n.value, bool):
+            return n.value
+        if isinstance(n, ast.UnaryOp) and isinstance(n.op, (ast.UAdd, ast.USub)):
+            v = ev(n.operand)
+            return -v if isinstance(n.op, ast.USub) else v
+        if isinstance(n, ast.BinOp) and isinstance(n.op, (ast.Add, ast.Sub, ast.Mult, ast.Div)):
+            a, b = ev(n.left), ev(n.right)
+            return {ast.Add: a + b, ast.Sub: a - b, ast.Mult: a * b}.get(type(n.op)) if not isinstance(n.op, ast.Div) else a / b
+        raise ValueError("unsupported formula")
+    return ev(ast.parse(expr, mode="eval"))
+
+
+def _num(v: Any) -> float:
+    if v is None or v == "":
+        return 0
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return v
+    n = parse_amount(str(v))
+    if n is None:
+        raise ValueError(f"not a number: {v}")
+    return n
+
+
+def _cell(ws: Any, v: Any, depth: int = 0) -> Any:
+    """A cell's value; simple formulas (=E5, =E5/2, =$E$8/2, =E5-(F5+G5)) are computed here because
+    workbooks saved by some apps carry no cached results. Functions, ranges and other sheets give None."""
+    if not (isinstance(v, str) and v.startswith("=")):
+        return v
+    expr = v[1:].replace("$", "")
+    if depth > 8 or re.search(r"[A-Za-z]{3,}|[!:]", expr):
+        return None
+    try:
+        expr = re.sub(r"[A-Z]{1,2}[0-9]+", lambda m: repr(_num(_cell(ws, ws[m.group(0)].value, depth + 1))), expr)
+        return _arith(expr)
+    except (ValueError, SyntaxError, ZeroDivisionError, TypeError):
+        return None
+
+
+def _sheet_rows(ws: Any, cfg: dict[str, Any]) -> dict[str, Any] | None:
+    """One month sheet laid out as 日付 / 誰 / 内容 / 状態 / 金額 / <A>負担額 / <B>負担額 / ... / memo."""
+    mems = members(cfg)
+    grid = [list(r) for r in ws.iter_rows(min_row=1, max_row=min(ws.max_row, 2000), max_col=16)]
+    head_i = next((i for i, r in enumerate(grid[:6])
+                   if {"日付", "内容", "金額"} <= {str(c.value).strip() for c in r if c.value is not None}), None)
+    if head_i is None:
+        return None
+    head = [str(c.value).strip() if c.value is not None else "" for c in grid[head_i]]
+    col = {name: head.index(name) for name in ("日付", "誰", "内容", "状態", "金額", "memo") if name in head}
+    burden = [i for i, h in enumerate(head) if h.endswith("負担額") and "から" not in h]
+    if len(burden) < 2:
+        return None
+    a_col, b_col = burden[0], burden[1]
+    if head[b_col].startswith(mems[0]["label"]) or head[a_col].startswith(mems[1]["label"]):
+        a_col, b_col = b_col, a_col
+    billed = balance = None
+    for r in grid[:head_i]:
+        for i, c in enumerate(r):
+            text = str(c.value or "")
+            m = re.search(r"ご?請求金額\D*?([\d,]+)", unicodedata.normalize("NFKC", text))
+            if m:
+                billed = int(m.group(1).replace(",", ""))
+            if "残" in text and i > 0 and isinstance(r[i - 1].value, (int, float)):
+                balance = int(r[i - 1].value)
+    rows = []
+    for r in grid[head_i + 1:]:
+        val = lambda i: _cell(ws, r[i].value) if i is not None and i < len(r) else None  # noqa: E731
+        d = val(col.get("日付"))
+        day = d.date().isoformat() if isinstance(d, datetime) else d.isoformat() if isinstance(d, date) else parse_date(str(d or ""))
+        try:
+            amount = int(round(_num(val(col.get("金額")))))
+            a, b = int(round(_num(val(a_col)))), int(round(_num(val(b_col))))
+        except ValueError:
+            continue
+        if day is None or val(col.get("金額")) in (None, ""):
+            continue
+        if a == 0 and b == 0:
+            split = "shared"
+        elif a == amount and b == 0:
+            split = "a"
+        elif b == amount and a == 0:
+            split = "b"
+        elif abs(a - amount / 2) < 1 and abs(b - amount / 2) < 1:
+            split = "half"
+        else:
+            split = "custom"
+        holder = str(val(col.get("誰")) or "")
+        rows.append({"date": day, "holder": holder, "holder_key": _holder_key(holder, mems), "card": "",
+                     "merchant": str(val(col.get("内容")) or ""), "amount": amount, "split": split,
+                     "a": a if split == "custom" else 0, "b": b if split == "custom" else 0,
+                     "checked": True, "memo": str(val(col.get("memo")) or "")[:500]})
+    return {"rows": rows, "billed": billed, "balance": balance} if rows else None
+
+
+def import_workbook(filename: str, raw: bytes, cfg: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
+    """Past months from a workbook with one sheet per month named YYYYMM. Imported months are closed
+    (read-only history); a month that already exists here is never overwritten."""
+    try:
+        import openpyxl
+    except ImportError as exc:  # pragma: no cover - listed in pyproject
+        raise ValueError("Excel の読み込みには openpyxl が必要です（イメージを作り直してください）") from exc
+    import warnings
+
+    now = now or datetime.now()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        try:
+            wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=False)
+        except Exception as exc:  # noqa: BLE001 - any broken file is the user's input error
+            raise ValueError("Excel ファイルを開けませんでした") from exc
+    imported, skipped = [], []
+    with _lock:
+        for ws in wb.worksheets:
+            month = unicodedata.normalize("NFKC", ws.title).strip()
+            if not re.fullmatch(r"\d{4}(0[1-9]|1[0-2])", month):
+                skipped.append({"sheet": ws.title, "reason": "シート名が YYYYMM ではない"})
+                continue
+            if _path(month).exists():
+                skipped.append({"sheet": ws.title, "reason": "この月はもうある"})
+                continue
+            data = _sheet_rows(ws, cfg)
+            if data is None:
+                skipped.append({"sheet": ws.title, "reason": "列の並びが違う（日付・内容・金額・2 人分の負担額が必要）"})
+                continue
+            _save({"month": month, "billed": data["billed"], "balance": data["balance"], "closed": True,
+                   "closed_at": now.isoformat(timespec="seconds"), "rows": _with_ids(data["rows"]),
+                   "source": {"file": f"{Path(filename).name[:100]} / {ws.title}", "imported_at": now.isoformat(timespec="seconds")},
+                   "history": True})
+            imported.append({"month": month, "rows": len(data["rows"])})
+        raw_dir = DIR / "raw"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        (raw_dir / f"workbook-{now:%Y%m%d%H%M%S}{Path(filename).suffix.lower()}").write_bytes(raw)
+    if not imported:
+        raise ValueError("取り込める月がありませんでした: " + " / ".join(f"{x['sheet']}（{x['reason']}）" for x in skipped))
+    return {"month": max(x["month"] for x in imported), "workbook": {"imported": imported, "skipped": skipped}}
+
+
+# ---------- what past months did with the same shop ----------
+
+def _shop_keys(merchant: str) -> tuple[str, str]:
+    """(first two words, first word) of the normalised shop name: statements append places and
+    truncate differently from month to month, so the lookup falls back to the first word."""
+    words = _norm(merchant).split(" ")
+    return " ".join(words[:2]), words[0]
+
+
+def _history(before: str) -> dict[str, list[dict[str, Any]]]:
+    idx: dict[str, list[dict[str, Any]]] = {}
+    folder = DIR / "statements"
+    for p in sorted(folder.glob("*.json"), reverse=True) if folder.exists() else []:
+        if p.stem >= before:
+            continue
+        try:
+            st = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for r in sorted(st.get("rows") or [], key=lambda r: r.get("date", ""), reverse=True):
+            entry = {"month": st.get("month", p.stem), "split": r.get("split", "shared")}
+            k2, k1 = _shop_keys(r.get("merchant", ""))
+            idx.setdefault("2:" + k2, []).append(entry)
+            idx.setdefault("1:" + k1, []).append(entry)
+    return idx
+
+
+def _hint(r: dict[str, Any], idx: dict[str, list[dict[str, Any]]]) -> dict[str, Any] | None:
+    k2, k1 = _shop_keys(r["merchant"])
+    past = idx.get("2:" + k2) or idx.get("1:" + k1)
+    if not past:
+        return None
+    recent = past[:6]
+    last = recent[0]
+    return {"split": last["split"], "month": last["month"],
+            "same": sum(1 for x in recent if x["split"] == last["split"]), "count": len(recent)}
+
+
 # ---------- calculation ----------
 
 def parts(r: dict[str, Any]) -> tuple[int, int, int]:
-    """(A, B, shared) for one row. Half splits truncate toward zero; the odd yen stays shared."""
+    """(A, B, shared) for one row. Half splits truncate toward zero; the odd yen stays shared.
+    An excluded row counts for nobody (it is still part of the bill: see summarize)."""
+    if r.get("excluded"):
+        return 0, 0, 0
     amount, split = int(r["amount"]), r.get("split", "shared")
     if split == "a":
         a, b = amount, 0
@@ -328,22 +515,25 @@ def summarize(st: dict[str, Any]) -> dict[str, Any]:
     # A's rows, then B's, then anyone else; newest first within each (as in the hand-made sheet)
     rows.sort(key=lambda r: r["date"], reverse=True)
     rows.sort(key=lambda r: (order.get(r.get("holder_key", ""), 2), _norm(r["holder"]) if r.get("holder_key") not in order else ""))
-    total = {k: sum(r[k] for r in rows) for k in ("amount", "a", "b", "shared")}
+    used = [r for r in rows if not r.get("excluded")]
+    total = {k: sum(r[k] for r in used) for k in ("amount", "a", "b", "shared")}
+    excluded = {"count": len(rows) - len(used), "amount": sum(r["amount"] for r in rows if r.get("excluded"))}
+    statement_total = total["amount"] + excluded["amount"]  # what the card company bills: every row
     balance = st.get("balance")
     billed = st.get("billed")
-    unchecked = sum(1 for r in rows if not r.get("checked"))
+    unchecked = sum(1 for r in used if not r.get("checked"))
     over = sum(1 for r in rows if r["shared"] < 0)
     problems = []
     if unchecked:
         problems.append(f"未確認が {unchecked} 件あります")
-    if billed is not None and billed != total["amount"]:
-        problems.append(f"明細の合計 {total['amount']:,} 円が請求額 {billed:,} 円と一致しません")
+    if billed is not None and billed != statement_total:
+        problems.append(f"明細の合計 {statement_total:,} 円が請求額 {billed:,} 円と一致しません")
     if balance is None:
         problems.append("口座残高が未入力です")
     return {
         "month": st["month"], "closed": bool(st.get("closed")), "closed_at": st.get("closed_at"),
         "billed": billed, "balance": balance, "source": st.get("source"),
-        "rows": rows, "total": total,
+        "rows": rows, "total": total, "excluded": excluded, "statement_total": statement_total,
         "deposit": {"a": total["a"], "b": total["b"],
                     "shared": None if balance is None else total["shared"] - int(balance)},
         "unchecked": unchecked, "negative_shared": over,
@@ -369,7 +559,11 @@ def months() -> dict[str, Any]:
 
 def month_view(month: str) -> dict[str, Any]:
     _require_enabled()
-    return summarize(_load(month)) | {"config": public_config()}
+    view = summarize(_load(month))
+    idx = _history(view["month"])
+    for r in view["rows"]:
+        r["hint"] = _hint(r, idx)
+    return view | {"config": public_config()}
 
 
 def _editable(month: str) -> dict[str, Any]:
@@ -413,6 +607,8 @@ def update_rows(month: str, ids: list[str], change: dict[str, Any]) -> dict[str,
                 r["checked"] = bool(change["checked"])
             if "memo" in change:
                 r["memo"] = str(change["memo"])[:500]
+            if "excluded" in change:
+                r["excluded"] = bool(change["excluded"])
         _save(st)
     return month_view(month)
 
@@ -449,11 +645,13 @@ def export_csv(month: str) -> dict[str, Any]:
     w.writerow(["日付", "誰", "内容", "状態", "金額", f"{ma['label']}負担額", f"{mb['label']}負担額",
                 f"{cfg['shared_label']}から負担額", "memo"])
     for r in s["rows"]:
-        w.writerow([r["date"].replace("-", "/"), r["holder"], r["merchant"], "確認済" if r.get("checked") else "",
+        w.writerow([r["date"].replace("-", "/"), r["holder"], r["merchant"], "除外" if r.get("excluded") else "確認済" if r.get("checked") else "",
                     r["amount"], r["a"], r["b"], r["shared"], r.get("memo", "")])
     t, d = s["total"], s["deposit"]
     w.writerow([])
     w.writerow(["合計", "", "", "", t["amount"], t["a"], t["b"], t["shared"], ""])
+    if s["excluded"]["count"]:
+        w.writerow([f"除外した行（{s['excluded']['count']} 件・入金額に含めない）", "", "", "", s["excluded"]["amount"]])
     w.writerow([f"{cfg['account_label']}の残高", "", "", "", "" if s["balance"] is None else s["balance"]])
     w.writerow([f"{cfg['shared_label']}からの入金額", "", "", "", "" if d["shared"] is None else d["shared"]])
     return {"filename": f"credit-{month}.csv", "csv": "﻿" + buf.getvalue()}
