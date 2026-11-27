@@ -197,6 +197,17 @@ status: new
 - 取り込んだ元のファイルは `workspace/credit/raw/` に残ります。リポジトリでは `*.csv` `*.pdf` `*.xlsx` も `.gitignore` しているので、どこに置いてもコミットされません。
 - NAS などで LAN に公開するときは、`.env` に `NAKAMA_UI_PASSWORD` と `NAKAMA_UI_ALLOW_HOSTS` を必ず設定してください。
 
+### 家族などに画面を見せる（Tailscale の入口の後ろに置く・任意）
+
+画面を Tailscale 経由でほかの人に使ってもらうときは、Nakama のコンテナはそのままにします。そのうえで、**共有用の Tailscale の入口（別のコンテナ）**から、ホストに公開しているポートへ転送します。入口だけを相手に共有すれば、相手からは入口に並べたアプリしか見えません。ホストやほかのサービスには届きません。
+
+Nakama 側でやることは 2 つだけです。
+
+1. ホストのポートを、`0.0.0.0` に公開する（`compose.override.example.yaml` の `ports: "8766:8765"`）。`127.0.0.1:` で公開しているポートには、ほかのコンテナから届きません。
+2. `.env` の `NAKAMA_UI_ALLOW_HOSTS` に、入口の名前（`<入口>.<tailnet名>.ts.net`）と `host.docker.internal` を足して、`docker compose up -d` を実行する。足さないと、画面が 403（host not allowed）を返します。
+
+入口が Tailscale でつないでくるので、画面のパスワード（`NAKAMA_UI_PASSWORD`）は今までどおり必要です。相手に伝えてください。
+
 ## 7. コネクタを追加する
 
 コネクタは「エージェントがどこからデータを取るか」の切り替えスイッチです。既定は全部 `local`（`workspace/` のファイル）です。
