@@ -217,7 +217,8 @@ def overview(samples: bool = True) -> dict:
             "my_tasks_open": my_open,
         },
         "has_ticketing": bool((fleet.ticketing or {}).get("base")),
-        "features": {"credit": bool((fleet.credit or {}).get("enabled"))},
+        "features": {"credit": bool((fleet.credit or {}).get("enabled")),
+                     "rongo": bool((fleet.rongo or {}).get("enabled"))},
         "queues": _queues(fleet, samples),
     }
 
@@ -1641,6 +1642,9 @@ class _Handler(BaseHTTPRequestHandler):
             self._dispatch(lambda: overtime.month_summary(_month_or_current(q.get("month", ""))))
         elif url.path == "/api/memo/history":
             self._dispatch(memo_history)
+        elif url.path == "/api/rongo":
+            from . import rongo
+            self._dispatch(lambda: rongo.status(q.get("id", "")))
         elif url.path == "/api/credit/months":
             from . import credit
             self._dispatch(credit.months)
@@ -1737,6 +1741,15 @@ class _Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/holidays/import":
             from . import bizdays
             self._dispatch(bizdays.import_cao_csv)
+        elif url.path == "/api/rongo/import":
+            from . import rongo
+            self._dispatch(rongo.import_source)
+        elif url.path == "/api/rongo/read":
+            from . import rongo
+            self._dispatch(lambda: rongo.mark_read(str(body.get("id", "")), bool(body.get("read", True))))
+        elif url.path == "/api/rongo/generate":
+            from . import rongo
+            self._dispatch(lambda: rongo.start_generation(str(body.get("id", ""))))
         elif url.path == "/api/credit/import":
             from . import credit
             self._dispatch(lambda: credit.import_csv(str(body.get("filename", "")), str(body.get("data", "")),

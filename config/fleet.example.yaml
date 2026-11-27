@@ -86,6 +86,16 @@ credit:
   #   amount: ["ご利用金額"]
   #   holder: ["ご利用者"]
 
+# The Analects, one chapter a day (Personal > 論語). Off unless enabled.
+# The original text (public domain, ~500 chapters) is downloaded once from ctext.org with a button on the tab.
+# Every morning Claude writes 書き下し文 / 現代語訳 / 語句 / 教訓 / 今日の問い for the next few unread chapters
+# (one short call per chapter; needs the same Claude credential as the agents). Data: workspace/rongo/.
+rongo:
+  enabled: false
+  schedule: "15 5 * * *"        # when to prepare explanations (cron, fleet timezone)
+  ahead: 3                      # how many unread chapters to keep ready
+  model: claude-sonnet-5-5
+
 # Where each data source lives.
 #   local        -> files under workspace/ (default; works with zero integrations)
 #   mcp:<name>   -> MCP server <name> defined in config/mcp.json
