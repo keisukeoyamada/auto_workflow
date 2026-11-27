@@ -63,6 +63,17 @@ overtime:
   template: "【残業申請】{date}（{wd}） {start}〜{end}（{hours}h）
 理由: {reason}"
 
+# Optional: recurring-meeting decks for Tensaku (資料 tab). Folders are only read; templates are copied locally.
+decks:
+  meetings:
+    - {name: "Weekly sync", folder: "C:/path/to/decks/weekly", learn_last: 6}
+
+# Optional: nudge to take AI minutes around recurring meetings (business days, from <= now < until).
+# The notice shows the "## プロンプト" section of the note as copyable text and links to it in Obsidian.
+meeting_prompts:
+  - {name: "朝会", from: "10:15", until: "11:30", note: "C:/path/to/vault/minutes-prompt.md"}
+  - {name: "夕会", from: "16:00", until: "18:30", note: "C:/path/to/vault/minutes-prompt.md"}
+
 # Where each data source lives.
 #   local        -> files under workspace/ (default; works with zero integrations)
 #   mcp:<name>   -> MCP server <name> defined in config/mcp.json
@@ -171,6 +182,25 @@ agents:
     # Runs only when a memo was added since the last run.
     trigger_paths: [workspace/memos]
     writes: [workspace/kikitori, workspace/memos, workspace/reports]
+
+  tensaku:
+    enabled: true
+    model: claude-opus-5-5       # writing review / tone -> highest care
+    effort: medium
+    schedule: []                 # run from the dashboard (資料 tab)
+    max_turns: 60
+    max_budget_usd: 2.00
+    writes: [knowledge/decks, workspace/decks/reviews, workspace/agenda/suggestions, workspace/reports]
+
+  asa:
+    enabled: true
+    model: claude-sonnet-5-5     # daily summary of material Nakama already collected
+    effort: medium
+    schedule: ["30 8 * * mon-fri"]
+    skip_holidays: true
+    max_turns: 20
+    max_budget_usd: 0.40
+    writes: [workspace/brief, workspace/reports]
 
   coordinator:
     enabled: true

@@ -26,11 +26,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+from urllib.parse import quote as url_quote
 from zoneinfo import ZoneInfo
 
 from .config import AGENTS_DIR, KNOWLEDGE_DIR, LOGS_DIR, ROOT, SAMPLES_DIR, TEMPLATES_DIR, WORKSPACE_DIR, ConfigError, load_fleet
 from . import chat, cronja
 from .todo_note import NoteError
+from .vault import VaultError
+from .wbs import WbsError
+from .decks import DeckError
+from .scripts import ScriptError
 from .spawn import spawn_agent, spawn_nakama
 from .state import LOCK_DIR, STALE_LOCK_SECONDS, last_success, spend_on
 
@@ -38,6 +43,28 @@ log = logging.getLogger(__name__)
 
 INDEX_HTML = Path(__file__).with_name("static") / "index.html"
 GUIDE_MD = ROOT / "docs" / "GUIDE.md"
+REFERENCES_DIR = ROOT / "references"   # q128: PDFs shown in the guide tab (git-ignored)
+MAX_REFERENCE_BYTES = 30 * 1024 * 1024
+
+
+def reference_pdfs() -> list[dict]:
+    """PDFs directly under references/, newest first."""
+    if not REFERENCES_DIR.is_dir():
+        return []
+    files = sorted(REFERENCES_DIR.glob("*.pdf"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return [{"name": p.name, "size": p.stat().st_size} for p in files if p.is_file()]
+
+
+def _reference_path(name: str) -> Path:
+    """Resolve a reference by bare file name only (no sub-paths, no traversal)."""
+    if not name or name != Path(name).name or not name.lower().endswith(".pdf"):
+        raise PermissionError("bad reference name")
+    path = REFERENCES_DIR / name
+    if not path.is_file():
+        raise FileNotFoundError(name)
+    if path.stat().st_size > MAX_REFERENCE_BYTES:
+        raise PermissionError("reference too large")
+    return path
 READABLE_ROOTS = (WORKSPACE_DIR, KNOWLEDGE_DIR)
 # kind -> (folder, glob)
 KINDS = {
@@ -218,6 +245,66 @@ def overview(samples: bool = True) -> dict:
         },
         "has_ticketing": bool((fleet.ticketing or {}).get("base")),
         "queues": _queues(fleet, samples),
+        "checks": _checks_nonblocking(datetime.now(tz).date()),
+    }
+
+
+_checks_last: dict = {}
+_checks_busy = threading.Event()
+
+
+def _checks_nonblocking(today: date) -> dict | None:
+    """The overview is polled every 15 s and must stay fast: counts are refreshed in a thread, last value returned."""
+    if not _checks_busy.is_set() and time.time() - _checks_last.get("at", 0) > 60:
+        _checks_busy.set()
+
+        def work():
+            try:
+                _checks_last.update(value=_check_counts(today), at=time.time())
+            except Exception:  # noqa: BLE001
+                log.exception("check counts failed")
+            finally:
+                _checks_busy.clear()
+
+        threading.Thread(target=work, daemon=True).start()
+    return _checks_last.get("value")
+
+
+KIHYO_DETAIL_IN_FEED = False  # q120: created / append / close / dup rows are read in the Kihyo report instead
+
+
+def add_reaction(body: dict) -> dict:
+    """q123: a comment on a notice becomes a change request for Coordinator (runs in its batch, every 15 min)."""
+    text, title = str(body.get("text", "")).strip(), str(body.get("title", "")).strip()
+    if not text:
+        raise ValueError("リアクションを書いてください")
+    kind = str(body.get("kind", ""))
+    path = create_request(f"エスカレへのリアクション（{kind}: {title[:80]}）\n\n{text}\n\n"
+                          "→ 関係するエージェントの指示（agents/*/LOCAL.md）かナレッジに反映し、次回以降の判断・文面に活かすこと。"
+                          "単発の対応で済むものは action_items に回すこと。")
+    return {"ok": True, "path": path}
+
+
+def _check_counts(today: date) -> dict:
+    """q111: the numbers worth a glance besides the agent queues (same 5-minute cache as the escalation feed)."""
+    from . import devreq, wbs
+
+    iso = today.isoformat()
+    try:
+        tasks = _ttl(("notif-tasks", iso), 300, lambda: unified_tasks())["tasks"]
+    except Exception:  # noqa: BLE001
+        tasks = []
+    live = [t for t in tasks if t["status"] not in ("done", "skip")]
+    try:
+        wbs_pending = len(wbs.load_pending())
+    except Exception:  # noqa: BLE001
+        wbs_pending = 0
+    return {
+        "overdue": sum(1 for t in live if t.get("due") and t["due"] < iso),
+        "duetoday": sum(1 for t in live if t.get("due") == iso),
+        "routine_left": sum(1 for t in live if t["source"] == "routine"),
+        "wbs_pending": wbs_pending,
+        "devreq_open": sum(1 for q in devreq.load() if q.get("status") in ("open", "partial")),
     }
 
 
@@ -611,7 +698,12 @@ def unified_tasks(include_done: bool = False, month: str = "") -> dict:
             if t["status"] == "stale" or not in_month or (t["status"] == "done" and not include_done):
                 continue
             key = routines.planner_key(t.get("link") or t["title"])
-            rows.append({"source": "planner", "title": t["title"], "due": due, "status": t["status"], "link": t.get("link", ""),
+            planner_due = due
+            due = _load_planner_due().get(key) or due
+            in_month = due.startswith(month) or (current and (not due or due < month) and t["status"] != "done")
+            if not in_month:
+                continue
+            rows.append({"source": "planner", "title": t["title"], "due": due, "planner_due": planner_due, "status": t["status"], "link": t.get("link", ""),
                          "priority": t.get("priority", ""), "memo": t.get("memo", ""), "key": key,
                          "notes": routines.note_count(key)})
 
@@ -619,28 +711,209 @@ def unified_tasks(include_done: bool = False, month: str = "") -> dict:
         if include_done or r["status"] not in ("done", "skip"):
             rows.append(r)
 
+    try:
+        from . import wbs
+
+        for w in _ttl(("wbs-mine",), 60, lambda: wbs.my_items(today)):
+            due = w.get("end") or w.get("start") or ""
+            in_month = due.startswith(month) or (current and (not due or due < month) and not w["done"])
+            if not in_month or (w["done"] and not include_done):
+                continue
+            key = routines.planner_key(f"wbs:{w['file']}:{w['sheet']}:{w['no']}")
+            rows.append({"source": "wbs", "title": f"{w['no']} {w['title']}", "due": due, "status": "done" if w["done"] else (w["status"] or "open"),
+                         "wbs_file": w["file"], "wbs_sheet": w["sheet"], "wbs_row": w["row"], "wbs_no": w["no"],
+                         "memo": f"{w['file_name']} / {w['owner']}",
+                         "key": key, "notes": routines.note_count(key)})
+    except Exception as exc:  # noqa: BLE001 - a broken spreadsheet must not break the task list
+        errors.append(f"WBS: {exc}")
+
     note = todo_note.load(include_done) if current else {"configured": False, "items": []}
     if note.get("error"):
         errors.append(note["error"])
     for i in note["items"]:
         title = (f"{i['parent']} › " if i["parent"] else "") + i["text"]
-        rows.append({"source": "note", "title": title, "due": "", "status": "done" if i["done"] else "open",
+        rows.append({"source": "note", "title": title, "text": i["text"], "due": i.get("due", ""), "status": "done" if i["done"] else "open",
                      "star": i["star"], "section": i["section"], "line": i["line"], "raw": i["raw"],
-                     "key": i["key"], "notes": routines.note_count(i["key"])})
+                     "parent_line": i.get("parent_line", -1), "key": i["key"], "notes": routines.note_count(i["key"])})
 
+    stars = _load_stars()
+    related = _wbs_link_index()
     for r in rows:  # business-day label of the due date (e.g. "18営")
         try:
             d = date.fromisoformat(r["due"]) if r.get("due") else None
         except ValueError:
             d = None
         r["bd"] = bizdays.business_day_index(d) if d else None
+        if r["source"] != "note":  # note rows carry ★ in the file itself
+            r["star"] = bool(stars.get(r["key"]))
+        if r["source"] != "wbs":
+            r["related"] = _related_wbs(r["title"], related)
     order = {"open": 0, "todo": 0, "doing": 0, "review": 0, "pending": 1, "unknown": 1, "done": 2, "skip": 2}
-    rows.sort(key=lambda r: (order.get(r["status"], 1), not r.get("star"), r.get("due") or "9999", r["title"]))
+    rows.sort(key=lambda r: (not r.get("star"), order.get(r["status"], 1), r.get("due") or "9999", r["title"]))
+    rows = _nest_note_rows(rows)
     idx = bizdays.business_day_index(today)
     return {"tasks": rows, "error": " / ".join(errors) or None, "today": today.isoformat(), "month": month,
             "current": current, "bd": idx, "bd_total": len(bizdays.business_days_of_month(today.year, today.month)),
             "holiday": bizdays.holidays().get(today.isoformat(), {}).get("name", ""),
             "note_configured": note.get("configured", False) or bool(todo_note.note_path())}
+
+
+def _nest_note_rows(rows: list[dict]) -> list[dict]:
+    """Note children follow their parent (in file order) with depth for indenting, like the Markdown outline.
+    A child whose parent is not in the list (done and hidden) keeps its place and the "parent › " prefix."""
+    by_line = {r["line"]: r for r in rows if r["source"] == "note"}
+    kids: dict[int, list[dict]] = {}
+    for r in rows:
+        if r["source"] == "note" and r.get("parent_line", -1) in by_line:
+            kids.setdefault(r["parent_line"], []).append(r)
+    out: list[dict] = []
+
+    def emit(r: dict, depth: int) -> None:
+        r["depth"] = depth
+        if depth:
+            r["title"] = r.get("text") or r["title"]  # the parent is shown right above
+        out.append(r)
+        for c in sorted(kids.get(r["line"], []), key=lambda x: x["line"]):
+            emit(c, depth + 1)
+
+    for r in rows:
+        if r["source"] == "note" and r.get("parent_line", -1) in by_line:
+            continue  # placed under its parent
+        emit(r, 0) if r["source"] == "note" else out.append(r)
+    return out
+
+
+def add_note_child(body: dict) -> dict:
+    from . import todo_note
+
+    try:
+        return todo_note.add_child(int(body.get("line", -1)), str(body.get("raw", "")), str(body.get("text", "")), bool(body.get("star")))
+    except todo_note.NoteError as exc:
+        raise ValueError(str(exc)) from exc
+
+
+STARS_FILE = WORKSPACE_DIR / "tasks" / "stars.json"
+
+
+def _load_stars() -> dict[str, bool]:
+    data = _cached_json(STARS_FILE) if STARS_FILE.exists() else None
+    return data if isinstance(data, dict) else {}
+
+
+def star_task(body: dict) -> dict:
+    """★ pins a task to the top. Note rows: ★ is written into the note line; others: stored in workspace/tasks/stars.json."""
+    from . import todo_note
+
+    star = body.get("star", True) is not False
+    if body.get("source") == "note":
+        try:
+            return todo_note.set_star(int(body.get("line", -1)), str(body.get("raw", "")), star)
+        except todo_note.NoteError as exc:
+            raise ValueError(str(exc)) from exc
+    key = str(body.get("key", ""))
+    if not re.fullmatch(r"(routine-[\w\-]+-\d{4}-\d{2}|(planner|note)-[0-9a-f]{12})", key):
+        raise ValueError("bad task key")
+    stars = dict(_load_stars())
+    if star:
+        stars[key] = True
+    else:
+        stars.pop(key, None)
+    STARS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    STARS_FILE.write_text(json.dumps(stars, indent=1), encoding="utf-8")
+    return {"key": key, "star": star}
+
+
+def _tokens(text: str) -> set[str]:
+    """ASCII words of 6+ chars, lower-cased and without separators (e.g. "Winserver" -> "winserver")."""
+    return {w.lower() for w in re.findall(r"[A-Za-z][A-Za-z0-9]{5,}", unicodedata.normalize("NFKC", text))}
+
+
+def _wbs_link_index() -> list[dict]:
+    """[{id, name, path_key}] of detected WBS files (cached with the WBS index)."""
+    try:
+        from . import wbs
+
+        files = _ttl(("wbs-index",), 60, lambda: wbs.index(date.today()))
+    except Exception:  # noqa: BLE001 - links are a convenience
+        return []
+    out = []
+    for f in files:
+        if f.get("is_wbs"):
+            key = re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKC", f["path"]).lower())
+            out.append({"id": f["id"], "name": f["name"], "path_key": key})
+    return out
+
+
+def _related_wbs(title: str, index: list[dict]) -> list[dict]:
+    toks = _tokens(title)
+    return [{"id": w["id"], "name": w["name"]} for w in index if any(t in w["path_key"] for t in toks)][:3]
+
+
+def completed_index(limit: int = 300) -> dict:
+    """Everything marked done, from every place it is stored, newest first, with where it lives."""
+    from . import agenda, devreq, reminders, routines, todo_note
+
+    rows: list[dict] = []
+
+    def add(source, title, when, where, tab="", path="", link="", extra=None):
+        rows.append({"source": source, "title": title, "when": when or "", "where": where, "tab": tab, "path": path,
+                     "link": link, **(extra or {})})
+
+    # routines: every month file
+    names = {r["id"]: r["name"] for r in routines.load_routines()}
+    for f in sorted(routines.PROGRESS_DIR.glob("*.json"), reverse=True):
+        for rid, p in (_cached_json(f) or {}).items():
+            if isinstance(p, dict) and p.get("status") in ("done", "skip"):
+                add("routine", f"{names.get(rid, rid)}（{f.stem}）" + ("・今月なし" if p["status"] == "skip" else ""),
+                    p.get("updated", ""), f"workspace/routine/progress/{f.name}", tab="routine", extra={"rid": rid, "month": f.stem})
+    # hand-written note: ■ lines
+    try:
+        note = todo_note.load(include_done=True)
+        for i in note.get("items", []):
+            if i["done"]:
+                add("note", (f"{i['parent']} › " if i["parent"] else "") + i["text"], "", f"{note.get('path')}（{i['line'] + 1} 行目・■）",
+                    tab="note", extra={"line": i["line"]})
+    except Exception:  # noqa: BLE001
+        pass
+    # Planner (from the promotion history x latest planner_state)
+    try:
+        if (load_fleet().ticketing or {}).get("base"):
+            for t in my_tasks(include_done=True)["tasks"]:
+                if t["status"] == "done":
+                    add("planner", t["title"], t.get("issued", ""), "Planner（planner_state で完了）", link=t.get("link", ""))
+    except Exception:  # noqa: BLE001
+        pass
+    # WBS rows marked 完了
+    try:
+        from . import wbs
+
+        for w in _ttl(("wbs-mine",), 60, lambda: wbs.my_items(date.today())):
+            if w["done"]:
+                add("wbs", f"{w['no']} {w['title']}", w.get("actual_end", ""), f"{w['file_name']}（{w['sheet']} {w['row']} 行目）",
+                    tab="wbs", extra={"wbs_file": w["file"], "wbs_row": w["row"]})
+    except Exception:  # noqa: BLE001
+        pass
+    for kind, label in (("action_items", "要対応"), ("requests", "変更依頼"), ("memos", "メモ")):
+        for it in _list_kind(kind, True):
+            if it["meta"].get("status") in ("done", "skipped", "closed"):
+                add(kind, it["title"] or it["name"], fmt_mtime(it["mtime"]), it["path"], tab=kind, path=it["path"])
+    for a in agenda.load():
+        if a["status"] == "closed":
+            add("agenda", f"{a['meeting']}: {a['topic']}", a.get("last", ""), "workspace/agenda/items.json", tab="agenda")
+    for r in reminders.load():
+        if r.get("done"):
+            add("reminder", r["title"], r.get("done_at") or r["date"], "workspace/reminders.json（✓ 済んだ）", link=r.get("link", ""))
+    for snap in _load_acks().values():  # notices you OK'd in the escalation feed
+        if isinstance(snap, dict) and snap.get("title"):
+            add("notice", snap["title"], str(snap.get("acked_at", "")), "エスカレで OK → 確認済み（workspace/notifications/acks.json）",
+                tab=snap.get("tab") or "", path=snap.get("path") or "", link=snap.get("link") or "")
+    for q in devreq.load():
+        if q["status"] == "done":
+            add("devreq", f"{q['id']} {q['text']}", q.get("updated", ""), "workspace/dev/requests.json", tab="devreq")
+    rows.sort(key=lambda r: r["when"], reverse=True)
+    from collections import Counter
+
+    return {"rows": rows[:limit], "total": len(rows), "by_source": dict(Counter(r["source"] for r in rows))}
 
 
 def complete_task(body: dict) -> dict:
@@ -723,6 +996,11 @@ def assist_prompt(kind: str, ref: dict) -> dict:
                 f"状態: {ref.get('status')}\n補足: {str(ref.get('memo') or '')[:800]}\n作業メモ:\n{notes or '- なし'}\n\n"
                 "お願い: ①次の一手（具体的に・30 分で終わる単位）②関係者への返答・連絡文の案 ③完了にしてよいかの判断と、"
                 "Planner に追記するクローズ文の案（📝/🔴 の書式）④締切までの営業日と、他のタスク・不在予定とのぶつかり。")
+    elif kind == "notice" and ref.get("kind") == "reminder":
+        body = (f"次のリマインドは、自分が関係者に催促する立場のものです。送る文面を整えてください。\n\n内容: {str(ref.get('title', ''))[:300]}\n"
+                f"リンク: {str(ref.get('link') or '')[:500]}\n補足: {str(ref.get('detail') or '')[:800]}\n今の文面案:\n{str(ref.get('draft') or '')[:1500]}\n\n"
+                "お願い: ①Teams のチャネル投稿用（短く・柔らかく）②個別にメンションで送る用 ③締切を過ぎた場合の再催促用 の 3 案。"
+                "相手を責めない言い回しで、リンクはそのまま残してください。最後に「こちらでいかがでしょう？」と確認してください。")
     elif kind == "notice":
         body = (f"エスカレ欄の次の通知について判断材料と推奨を出してください。\n\n種類: {ref.get('kind')}\n内容: {str(ref.get('title', ''))[:500]}\n"
                 f"詳細: {str(ref.get('detail') or '')[:2000]}\n\n"
@@ -736,6 +1014,11 @@ def assist_prompt(kind: str, ref: dict) -> dict:
                   "④休暇の提案（締切・ルーティンの実施枠・チームの不在かぶり・祝日を踏まえて、休みを取りやすい日と避けるべき日）。")
     else:
         raise ValueError("kind は task / notice / overall")
+    from . import projects
+
+    if projects.prompt_block():  # q076: always ground project work in the registered folders, cite paths
+        body += ("\n\nプロジェクトに関わる内容なら、下の参照フォルダを先に調べ、根拠のファイルをフルパスで引用してください。\n"
+                 + projects.prompt_block())
     return {"title": {"task": "🤖 タスク: ", "notice": "🤖 通知: ", "overall": "🤖 総合アシスト "}[kind]
             + (str(ref.get("title", ""))[:30] if kind != "overall" else today.isoformat()),
             "prompt": body + "\n\n--- 参考情報 ---\n" + "\n".join(head)}
@@ -797,7 +1080,41 @@ def set_task_due(body: dict) -> dict:
             return todo_note.set_due(int(body.get("line", -1)), str(body.get("raw", "")), due)
         except todo_note.NoteError as exc:
             raise ValueError(str(exc)) from exc
-    raise ValueError("Planner の期日は Planner で変更してください（起票済みのカードの期日を書き換える PA フローが無いため。要望 q071 に記載）")
+    if source == "planner":
+        # PA cannot update a card's due date, so Nakama keeps its own date and reminds the owner to fix Planner too
+        key = str(body.get("key", ""))
+        if not key:
+            raise ValueError("key がありません")
+        data = _load_planner_due()
+        if due:
+            date.fromisoformat(due)
+            data[key] = due
+        else:
+            data.pop(key, None)
+        PLANNER_DUE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        PLANNER_DUE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        return {"ok": True, "due": due, "note": "Nakama 上の期日を変えました。Planner 側も直してください"}
+    if source == "wbs":
+        from . import wbs
+
+        try:
+            r = wbs.stage(str(body.get("wbs_file", "")), str(body.get("wbs_sheet", "")), int(body.get("wbs_row", 0)), "end", due,
+                          expected_no=str(body.get("wbs_no", "")))
+        except wbs.WbsError as exc:
+            raise ValueError(str(exc)) from exc
+        _ttl_cache.pop(("wbs-mine",), None)
+        return {"ok": True, "due": due, "staged": r, "note": "WBS の終了予定に反映待ちで記録しました（Excel へは WBS タブの転記で）"}
+    raise ValueError(f"この出典の期日は変えられません: {source}")
+
+
+PLANNER_DUE_FILE = WORKSPACE_DIR / "tasks" / "planner_due.json"
+
+
+def _load_planner_due() -> dict:
+    try:
+        return json.loads(PLANNER_DUE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
 
 
 def memo_history() -> dict:
@@ -823,6 +1140,63 @@ def memo_history() -> dict:
         rows.append({"memo": stem, "created": created, "status": meta.get("status", "new"), "route": meta.get("route", ""),
                      "title": _title(text, meta), "routes": routes, "went": went, "requests": cites})
     return {"rows": rows}
+
+
+# ---------- decks (Tensaku) + agenda ----------
+
+def deck_job(kind: str, meeting: str, path: str = "") -> dict:
+    """Prepare extracts and start Tensaku (learn = style guide + carry-over proposals, review = one deck)."""
+    from . import decks
+
+    if _is_running("tensaku"):
+        raise ValueError("Tensaku は実行中です。終わってからもう一度どうぞ")
+    m = decks.meeting(meeting)
+    slug = decks.slug(meeting)
+    if kind == "learn":
+        files = decks.extract(meeting)
+        extra = (f"## 学習モード（定例: {meeting}）\n- 過去の資料の抜き出し（新しい順）: " + ", ".join(f"`{f}`" for f in files)
+                 + f"\n- スタイルガイド: `knowledge/decks/{slug}-style.md` を作成・更新する\n"
+                 f"- 持ち越しの候補は `workspace/agenda/suggestions/` に書く（定例名は「{meeting}」）")
+    elif kind == "review":
+        found = decks.list_decks(meeting)
+        if not path and not found:
+            raise ValueError("この定例のフォルダに資料がありません")
+        target = path or str(found[0])
+        review = decks.extract_file(target)
+        refs = decks.extract(meeting, 3)
+        extra = (f"## 添削モード（定例: {meeting}）\n- 添削する資料: `{review}`（元ファイル: {target}）\n"
+                 f"- スタイルガイド: `knowledge/decks/{slug}-style.md`（無ければ過去の資料から直接判断）\n"
+                 "- 比較用の過去の資料: " + ", ".join(f"`{f}`" for f in refs if f != review)
+                 + "\n- 結果は `workspace/decks/reviews/` に書く")
+    else:
+        raise ValueError("kind は learn / review")
+    with _spawn_lock:
+        _spawned["tensaku"] = spawn_agent("tensaku", force=True, extra_args=["--extra", extra])
+    return {"started": kind, "meeting": m["name"]}
+
+
+# ---------- morning brief (Asa) ----------
+BRIEF_DIR = WORKSPACE_DIR / "brief"
+
+
+def brief_material() -> str:
+    """Everything Asa needs, prepared by Nakama (the agent cannot reach the synced folders itself)."""
+    from . import agenda
+
+    base = assist_prompt("overall", {})["prompt"]
+    carry = [f"- {i['meeting']}: {i['topic']}（{i['status']}・次: {i.get('next_action') or '-'}）"
+             for i in agenda.load() if i["status"] != "closed"][:30]
+    nl = chr(10)
+    today = datetime.now(ZoneInfo(load_fleet().timezone)).date().isoformat()
+    return (f"## Asa への材料（Nakama が作成）{nl}{base}{nl}{nl}## 定例の持ち越し課題{nl}"
+            + (nl.join(carry) or "- なし") + f"{nl}{nl}出力: `workspace/brief/{today}.md`")
+
+
+def latest_brief() -> dict:
+    files = sorted(BRIEF_DIR.glob("*.md"), reverse=True)
+    if not files:
+        return {"date": "", "content": ""}
+    return {"date": files[0].stem, "content": files[0].read_text(encoding="utf-8")[:20000]}
 
 
 # ---------- chat side panel ----------
@@ -851,7 +1225,7 @@ MEMOS_DIR = WORKSPACE_DIR / "memos"
 SUGGEST_DIR = WORKSPACE_DIR / "kikitori" / "suggestions"
 APPLIED_FILE = WORKSPACE_DIR / "kikitori" / "applied.json"
 MEMO_STEM_RE = re.compile(r"\d{8}-\d{6}")
-ROUTES = ("task", "attendance", "knowledge", "keep")
+ROUTES = ("task", "attendance", "knowledge", "reminder", "keep")
 ATT_KINDS = ("有休", "午前休", "午後休", "時間変更", "早退", "研修", "その他")
 
 
@@ -872,7 +1246,7 @@ def memo_detail(stem: str) -> dict:
     for x in (sug or {}).get("items") or [] if isinstance(sug, dict) else []:
         if isinstance(x, dict) and x.get("route") in ROUTES:  # agent output is untrusted: keep known shapes only
             items.append({k: str(x.get(k) or "") for k in
-                          ("route", "summary", "text", "who", "name", "date", "kind", "hours", "request")})
+                          ("route", "summary", "text", "who", "name", "date", "kind", "hours", "request", "link")})
     return {"memo": stem, "meta": _front_matter(text), "body": re.sub(r"^---\r?\n.*?\r?\n---\r?\n?", "", text, count=1, flags=re.S),
             "items": items, "applied": _load_applied().get(stem, {}), "has_suggestions": sug is not None}
 
@@ -900,6 +1274,9 @@ def apply_memo_item(stem: str, index: int, action: str) -> dict:
                 datetime.strptime(item["date"], "%Y-%m-%d")  # raises ValueError on a bad date
                 line = f"{item['name']} {item['date']} {item['kind']} {item['hours']}".strip()
                 result["path"] = save_paste("memo", line)
+        elif route == "reminder":
+            from . import reminders
+            result["path"] = "reminder " + reminders.add(item["date"], item["summary"], item.get("link", ""), f"メモ {stem} より")["id"]
         elif route == "knowledge":
             result["path"] = create_request(f"{item['request'] or item['summary']}\n\n（メモ {stem} より）")
     elif action != "dismiss":
@@ -925,6 +1302,99 @@ def _load_acks() -> dict[str, str]:
         return data if isinstance(data, dict) else {}
     except (OSError, json.JSONDecodeError):
         return {}
+
+
+def _prompt_section(text: str) -> str:
+    """The part of a prompt note under '## プロンプト' (up to the next '## ' heading); whole text if absent."""
+    m = re.search(r"^##\s*プロンプト\s*$(.*?)(?=^##\s|\Z)", text, re.M | re.S)
+    body = m.group(1) if m else text
+    return body.strip().strip("＋+").strip()
+
+
+def _meeting_prompt_notices(add, now) -> None:
+    """q127: around each recurring meeting, remind to take AI minutes and show the prompt note (copyable)."""
+    hm = now.strftime("%H:%M")
+    for mp in load_fleet().meeting_prompts:
+        if not isinstance(mp, dict) or not (str(mp.get("from", "")) <= hm < str(mp.get("until", ""))):
+            continue
+        name, note = str(mp.get("name") or "定例"), Path(str(mp.get("note") or ""))
+        try:
+            prompt = _prompt_section(note.read_text(encoding="utf-8"))
+        except OSError as exc:
+            prompt = f"(プロンプトのノートを読めません: {exc})"
+        link = f"obsidian://open?path={url_quote(str(note))}" if mp.get("obsidian", True) and note.name else ""
+        add("meeting", f"{name}の AI 議事メモを取りましょう 📝", key=f"meeting-{name}-{now.date().isoformat()}",
+            when=now.isoformat(timespec="minutes"), group="リマインド", link=link,
+            detail=f"会議が終わったら Copilot にこのプロンプトを貼って議事メモを作り、OneNote に保存（起票の入力になります）。元ノート: {note}",
+            draft=prompt[:4000])
+
+
+def _more_notices(add, today, samples: bool) -> None:
+    """Things that need you but no agent reports: overdue / due-today tasks, drafts waiting for review,
+    memo routing suggestions not yet applied, agent runs that failed today, WBS problems.
+    Counts are part of the key, so an OK'd summary comes back when something new is added."""
+    iso = today.isoformat()
+    try:
+        tasks = _ttl(("notif-tasks", iso), 300, lambda: unified_tasks())["tasks"]
+    except Exception:  # noqa: BLE001 - the feed must never fail because one source did
+        tasks = []
+    live = [t for t in tasks if t["status"] not in ("done", "skip") and t.get("due")]
+    for kind, rows, label in (("overdue", [t for t in live if t["due"] < iso], "期限切れのタスク"),
+                              ("duetoday", [t for t in live if t["due"] == iso], "今日が期日のタスク")):
+        if rows:
+            add(kind, f"{label} {len(rows)} 件", key=f"{kind}-{iso}-{len(rows)}", when=iso, tab="tasks", group="タスク",
+                extra=[{"title": t["title"], "detail": t["due"], "link": t.get("link") or ""} for t in rows[:15]])
+    drafts = _list_kind("drafts", samples)
+    if drafts:
+        add("draft", f"レビュー待ちの下書き {len(drafts)} 件", key=f"drafts-{len(drafts)}-{max(d['mtime'] for d in drafts):.0f}",
+            when=fmt_mtime(max(d["mtime"] for d in drafts)), tab="drafts", group="下書き・メモ",
+            extra=[{"title": d["title"] or d["name"], "detail": fmt_mtime(d["mtime"]), "link": ""} for d in drafts[:10]])
+    applied, memos = _load_applied(), []
+    for f in sorted(SUGGEST_DIR.glob("*.json"), reverse=True)[:30] if SUGGEST_DIR.exists() else []:
+        sug = _cached_json(f)
+        n = len([x for x in (sug or {}).get("items") or [] if isinstance(x, dict)]) if isinstance(sug, dict) else 0
+        left = n - len(applied.get(f.stem) or {})
+        if left > 0 and (MEMOS_DIR / f"{f.stem}.md").exists():
+            text = (MEMOS_DIR / f"{f.stem}.md").read_text(encoding="utf-8")
+            memos.append({"title": _title(text, _front_matter(text))[:60], "detail": f"{f.stem}・案 {left} 件", "link": ""})
+    if memos:  # one row: memo suggestions are low-urgency and can be many
+        add("memo", f"メモの振り分け案が未処理 {len(memos)} 件", key=f"memo-{len(memos)}-{memos[0]['detail']}", when=iso, tab="memos",
+            group="下書き・メモ", extra=memos, detail="Kikitori の提案です。メモタブで、実行するものだけボタンを押してください（不要なら「不要」）。")
+    for agent, run in _last_runs().items():
+        if run.get("error") and run.get("ts", "").startswith(iso):
+            add("agent_error", f"{agent} の実行が失敗（{run['ts'][11:16]}）", key=f"err-{agent}-{run['ts']}", when=run["ts"],
+                tab="logs", group="エージェント", detail="ログタブで原因を確認し、必要なら「今すぐ実行」でやり直してください。")
+    try:
+        from . import wbs
+
+        ov = _ttl(("notif-wbs", iso), 300, lambda: wbs.overview(today))
+        for f in ov["files"]:
+            if f["deadline"] and f["finish"] and f["finish"] > f["deadline"]:
+                add("wbs", f"WBS {f['name']}: 期限 {f['deadline']} を超える見込み（{f['finish']}）", key=f"wbs-over-{f['id']}-{f['finish']}",
+                    when=iso, tab="wbs", group="WBS", detail=f"残り {f['remaining_effort']} 人日・余裕 {f['slack']} 日（先行関係からの推定）")
+        bad = [p for p in ov["pending"] if p.get("error")]
+        if bad:
+            add("wbs", f"WBS の Excel 転記に失敗 {len(bad)} 件", key=f"wbs-err-{len(bad)}-{bad[-1]['at']}", when=bad[-1]["at"], tab="wbs",
+                group="WBS", extra=[{"title": f"{p['file_name']} {p['no']}", "detail": p["error"], "link": ""} for p in bad[:10]])
+    except Exception:  # noqa: BLE001
+        pass
+    try:  # q116: ask for this month's budget before the ops script is run
+        from . import scripts
+
+        for x in scripts.listing():
+            missing = [e for e in x["envs"] if e not in x["plans"]]
+            if x["routine"] and missing:
+                add("script", f"{x['name']}: {x['month']} の計画値（予算）が未入力（{'・'.join(missing)}）", key=f"plan-{x['id']}-{x['month']}",
+                    when=iso, tab="routine", group="おしらせ",
+                    detail="ルーティンの該当ルーチンを開き、🛠 カードの計画値に入れて保存すると、文案の $XXXXX と内着地/超過が埋まります。")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def recent_handled(limit: int = 12) -> dict:
+    """What left the escalation feed recently and where it went (OK'd notices + finished items)."""
+    rows = [r for r in completed_index(400)["rows"] if r["source"] in ("notice", "reminder", "action_items", "memos")]
+    return {"rows": rows[:limit]}
 
 
 def ack_notifications(ids: list[str]) -> int:
@@ -979,10 +1449,10 @@ def notifications(include_acked: bool = False, samples: bool = True) -> dict:
     items: list[dict] = []
 
     def add(kind: str, title: str, *, key: str, when: str = "", detail: str = "", link: str = "",
-            tab: str = "", path: str = "", group: str = "", extra: list | None = None) -> None:
+            tab: str = "", path: str = "", group: str = "", extra: list | None = None, draft: str = "") -> None:
         nid = _nid(kind, key, title)
         items.append({"id": nid, "kind": kind, "title": title, "when": when, "detail": detail, "link": link,
-                      "tab": tab, "path": path, "group": group, "extra": extra or [], "acked": nid in acks})
+                      "tab": tab, "path": path, "group": group, "extra": extra or [], "acked": nid in acks, "draft": draft})
 
     files = sorted(DECISIONS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:MAX_DECISION_FILES]
     for f in files:
@@ -999,9 +1469,14 @@ def notifications(include_acked: bool = False, samples: bool = True) -> dict:
             return [x if isinstance(x, dict) else {"title": str(x)} for x in v if isinstance(x, (dict, str))]
 
         if d.get("outcome") == "escalated":
-            add("escalated", str(d.get("message") or "ソース不足で起票を見送り"), key=f.name, when=when, group=group)
+            add("escalated", str(d.get("message") or "ソース不足で起票を見送り"), key=f.name, when=when, group=group,
+                detail="議事メモが届かず起票できませんでした。メモの書き出し（OneNote → HTML）と OneDrive の同期を確認し、"
+                       "届いたら起票タブで再実行。急ぐなら右のチャット（✏️ 起票操作）に議事メモを貼れば起票できます。")
         for x in lst("needs_attention"):
-            add("attention", str(x.get("title", "")), key=f.name, when=when, group=group)
+            add("attention", str(x.get("title", "")), key=f.name, when=when, group=group,
+                detail=str(x.get("reason") or x.get("note") or "Kihyo が判断を保留した案件です。レポートで背景を確認してください。"))
+        if not KIHYO_DETAIL_IN_FEED:
+            continue
         for x in lst("created"):
             title = str(x.get("title", ""))
             meta = " / ".join(v for v in (str(x.get("assignee") or ""), str(x.get("due") or ""), str(x.get("priority") or "")) if v)
@@ -1040,11 +1515,60 @@ def notifications(include_acked: bool = False, samples: bool = True) -> dict:
     if overtime.reminder_due(now):
         add("overtime", f"残業申請を上げてください（{now:%m/%d}）", key=f"overtime-{now.date().isoformat()}",
             when=now.isoformat(timespec="minutes"), tab="overtime", group="リマインド",
-            detail="勤怠 > 残業 で今日の残業（開始・終了・理由）を記録すると申請文をコピーできます。残業しないなら OK で消してください。")
+            detail="定時を過ぎる見込みなら申請を。勤怠 > 残業 で開始・終了・理由を記録すると申請文になります。残業しないなら OK。",
+            draft=overtime.render({"date": now.date().isoformat(), "start": "18:00", "end": "20:00", "hours": 2.0,
+                                   "reason": "〇〇の対応（期限 〇/〇）"}))
+    from . import bizdays, devreq, reminders
+
+    today = now.date()
+    for r in reminders.due(today):
+        when = "今日が期限" if r["date"] == today.isoformat() else ("期限切れ " + r["date"] if r["date"] < today.isoformat() else "期限 " + r["date"])
+        add("reminder", f"{r['title']}（{when}）", key=f"reminder-{r['id']}-{r['date']}", when=r["date"], group="リマインド",
+            detail=r.get("note") or "", link=r.get("link") or "", extra=[{"title": "rid", "detail": r["id"], "link": ""}],
+            draft=reminders.draft_message(r, today))
+    for q in devreq.load():
+        if q.get("status") == "consult":
+            add("devreq", f"{q['id']} {q['text']}", key=f"devreq-{q['id']}-{q.get('updated', '')}", when=q.get("updated", ""),
+                tab="devreq", group="あなたの確認が必要な要望", detail=(q.get("note") or "")[:400])
     for a in _list_kind("action_items", samples):
         if a["meta"].get("status") == "open":
             add("action", a["title"] or a["name"], key=a["path"], when=fmt_mtime(a["mtime"]), tab="action_items",
                 path=a["path"], group="要対応", detail=a["meta"].get("source", ""))
+
+    _more_notices(add, today, samples)
+    # q103: a small nudge before lunch on business days; open requests are applied together during the break
+    if bizdays.is_business_day(today) and "11:30" <= now.strftime("%H:%M") < "12:30":
+        n_open = sum(1 for q in devreq.load() if q.get("status") in ("open", "partial"))
+        add("lunch", f"そろそろお昼ですか？ 🍙 Nakama の改善要望 {n_open} 件", key=f"lunch-{today.isoformat()}", when=now.isoformat(timespec="minutes"),
+            tab="devreq", group="おしらせ",
+            detail="お昼に行くときに Claude Code へ「昼休み行く」と伝えると、未対応の要望をまとめて反映しておきます。")
+
+    hm = now.strftime("%H:%M")
+    if bizdays.is_business_day(today):
+        _meeting_prompt_notices(add, now)
+        live_tasks = [t for t in _ttl(("notif-tasks", today.isoformat()), 300, lambda: unified_tasks())["tasks"]
+                      if t["status"] not in ("done", "skip") and t.get("due") and t["due"] <= today.isoformat()] if "15:00" <= hm else []
+        if "15:00" <= hm < "15:30":
+            add("break", "ひと息つきませんか？ ☕", key=f"break-{today.isoformat()}", when=now.isoformat(timespec="minutes"), group="おしらせ",
+                detail=f"今日までのタスク残り {len(live_tasks)} 件。休憩に行くとき Claude Code に「休憩」と伝えれば、その間に要望を反映します。")
+        if "18:30" <= hm < "20:30":
+            add("evening", f"そろそろ上がりますか？ 🌙 今日までのタスク残り {len(live_tasks)} 件", key=f"evening-{today.isoformat()}",
+                when=now.isoformat(timespec="minutes"), tab="tasks", group="おしらせ",
+                detail="残りは明日に回すなら期日を変更、終わったものは ✓。残業するなら残業申請を。")
+    if hm >= "21:30" or hm < "05:00":
+        add("night", "もう夜です 🌙 今日はこのへんで", key=f"night-{today.isoformat()}", when=now.isoformat(timespec="minutes"), group="おしらせ",
+            detail="続きは明日のブリーフ（Asa・平日 8:30）に載ります。")
+    # q122: time-sensitive things first, newest first inside a group (the feed renders groups in this order)
+    prio = {k: 0 for k in ("overtime", "reminder", "overdue", "duetoday", "escalated", "agent_error")}
+    prio |= {k: 1 for k in ("lunch", "break", "evening", "night", "action", "script", "attention")}
+    prio |= {k: 2 for k in ("devreq", "wbs")}
+    gmin: dict[str, int] = {}
+    for i in items:
+        gmin[i["group"]] = min(gmin.get(i["group"], 9), prio.get(i["kind"], 3))
+    items.sort(key=lambda i: str(i.get("when") or ""), reverse=True)
+    items.sort(key=lambda i: (gmin[i["group"]], i["group"]))
+    for i in items:
+        i["hot"] = prio.get(i["kind"], 3) == 0
 
     if include_acked:  # older OK'd items whose source is no longer in the feed window
         live = {i["id"] for i in items}
@@ -1057,7 +1581,10 @@ def notifications(include_acked: bool = False, samples: bool = True) -> dict:
                           "extra": snap.get("extra") or [], "acked": True})
     unacked = sum(1 for i in items if not i["acked"])
     shown = [i for i in items if include_acked or not i["acked"]]
+    week = (today - timedelta(days=6)).isoformat()
+    handled = [str(a.get("acked_at", ""))[:10] for a in acks.values() if isinstance(a, dict)]
     return {"items": shown, "unacked": unacked, "total": len(items),
+            "handled_today": sum(1 for d in handled if d == today.isoformat()), "handled_week": sum(1 for d in handled if d >= week),
             "has_task_url": "{id}" in str((load_fleet().ticketing or {}).get("task_url") or "")}
 
 
@@ -1257,7 +1784,8 @@ def date_today() -> str:
 
 # ---------- costs page ----------
 PLANS_HELP = """\
-- **① 実際の利用（API 換算）**: Nakama の各実行で Claude CLI が報告する推定額の合計。従量課金の API で動かした場合の目安。
+- **① 実際の利用（API 換算）**: Nakama 経由のすべての Claude 利用（エージェントの定期・手動実行、右のチャット、🤖 相談・アシスト）で
+  Claude CLI が報告する推定額の合計。従量課金の API で動かした場合の目安。Claude Code を直接使った分（このリポジトリの開発など）は含まない。
 - **ライセンス**: `config/fleet.yaml` の `cost_plans` で定義（設定タブで編集）。月額 =
   `基本料 + 追加利用 − 会社負担`（会社負担は基本料＋追加利用を上限）。
   - `included`: 基本料に含まれる利用額（API 換算、ドル）。空なら「基本料内で賄われる」とみなし追加利用 0。
@@ -1548,7 +2076,7 @@ class _Handler(BaseHTTPRequestHandler):
     def _dispatch(self, fn) -> None:
         try:
             self._send(200, fn())
-        except (ValueError, KeyError, chat.ChatError, NoteError) as exc:
+        except (ValueError, KeyError, chat.ChatError, NoteError, VaultError, WbsError, DeckError, ScriptError) as exc:
             self._send(400, {"error": str(exc)})
         except PermissionError as exc:
             self._send(403, {"error": f"forbidden: {exc}"})
@@ -1594,7 +2122,15 @@ class _Handler(BaseHTTPRequestHandler):
                         "editable_status": sorted(_editable(path))}
             self._dispatch(read)
         elif url.path == "/api/guide":
-            self._dispatch(lambda: {"content": GUIDE_MD.read_text(encoding="utf-8")})
+            self._dispatch(lambda: {"content": GUIDE_MD.read_text(encoding="utf-8"), "references": reference_pdfs()})
+        elif url.path == "/api/reference":
+            # q128: raw PDF bytes for the embedded preview (fetched with the token, shown via a blob URL)
+            try:
+                path = _reference_path(q.get("name", ""))
+            except (FileNotFoundError, PermissionError) as exc:
+                self._send(404, {"error": f"not found: {exc}"})
+                return
+            self._send(200, path.read_bytes(), "application/pdf")
         elif url.path == "/api/attendance/calendar":
             self._dispatch(lambda: attendance_calendar(int(q.get("days", 14)), int(q.get("offset", 0))))
         elif url.path == "/api/kihyo":
@@ -1643,6 +2179,49 @@ class _Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/routines/history":
             from . import routines
             self._dispatch(lambda: {"history": routines.history(q.get("id", ""), 6, _month_or_current(q.get("month", "")))})
+        elif url.path == "/api/wbs":
+            from . import wbs
+            self._dispatch(lambda: {"files": _ttl(("wbs-index",), 60, lambda: wbs.index(date.today()))})
+        elif url.path == "/api/wbs/file":
+            from . import wbs
+            self._dispatch(lambda: wbs.view(wbs.by_id(q.get("id", ""))) | {"aliases": wbs.owner_aliases(), "sync_minutes": wbs.sync_minutes()})
+        elif url.path == "/api/wbs/overview":
+            from . import wbs
+            self._dispatch(lambda: wbs.overview(date.today()))
+        elif url.path == "/api/decks":
+            from . import decks
+            self._dispatch(lambda: {"meetings": decks.overview(), "reviews": decks.reviews(), "running": _is_running("tensaku")})
+        elif url.path == "/api/agenda":
+            from . import agenda, decks
+            self._dispatch(lambda: {"items": agenda.load(), "suggestions": agenda.suggestions(),
+                                    "meetings": [m["name"] for m in decks.meetings()]})
+        elif url.path == "/api/brief":
+            self._dispatch(latest_brief)
+        elif url.path == "/api/reminders":
+            from . import reminders
+            self._dispatch(lambda: {"reminders": reminders.load()})
+        elif url.path == "/api/projects":
+            from . import projects
+            self._dispatch(lambda: {"projects": projects.load()})
+        elif url.path == "/api/vault":
+            from . import vault
+            self._dispatch(lambda: vault.configure() | {"root_ok": vault.root() is not None})
+        elif url.path == "/api/vault/list":
+            from . import vault
+            self._dispatch(lambda: vault.listing(q.get("rel", ""), self.headers.get("X-Vault-Token", "")))
+        elif url.path == "/api/vault/file":
+            from . import vault
+            self._dispatch(lambda: vault.read(q.get("rel", ""), self.headers.get("X-Vault-Token", "")))
+        elif url.path == "/api/notifications/handled":
+            self._dispatch(recent_handled)
+        elif url.path == "/api/scripts":
+            from . import scripts
+            self._dispatch(lambda: {"scripts": scripts.listing()})
+        elif url.path == "/api/scripts/result":
+            from . import scripts
+            self._dispatch(lambda: scripts.result(q.get("id", "")))
+        elif url.path == "/api/completed":
+            self._dispatch(completed_index)
         elif url.path == "/api/sources":
             self._dispatch(data_sources)
         elif url.path == "/api/tasks":
@@ -1678,8 +2257,20 @@ class _Handler(BaseHTTPRequestHandler):
                                                       list(body.get("closes") or []), body.get("confirm")))
         elif url.path == "/api/chats/new":
             self._dispatch(lambda: chat.new_chat(str(body.get("model") or chat.MODELS[0])))
+        elif url.path == "/api/scripts/run":
+            from . import scripts
+            self._dispatch(lambda: scripts.run(str(body.get("id", ""))))
+        elif url.path == "/api/notifications/react":
+            self._dispatch(lambda: add_reaction(body))
+        elif url.path == "/api/scripts/plans":
+            from . import scripts
+            self._dispatch(lambda: scripts.save_plans(str(body.get("id", "")), body.get("values") or {}))
+        elif url.path == "/api/chats/actions":
+            self._dispatch(lambda: chat.set_actions(str(body.get("chat", "")), body.get("on") is True))
         elif url.path == "/api/chats/send":
             self._dispatch(lambda: send_chat(str(body.get("chat", "")), str(body.get("text", ""))))
+        elif url.path == "/api/tasks/star":
+            self._dispatch(lambda: star_task(body))
         elif url.path == "/api/tasks/done":
             self._dispatch(lambda: complete_task(body))
         elif url.path == "/api/devreq/add":
@@ -1688,7 +2279,7 @@ class _Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/devreq/update":
             from . import devreq
             self._dispatch(lambda: devreq.update(str(body.get("id", "")), body.get("status"), body.get("note"),
-                                                 body.get("change"), body.get("usage")))
+                                                 body.get("change"), body.get("usage"), body.get("instruction")))
         elif url.path == "/api/profile":
             self._dispatch(lambda: save_profile(str(body.get("name", "")), str(body.get("signature", ""))))
         elif url.path == "/api/run_all":
@@ -1705,9 +2296,83 @@ class _Handler(BaseHTTPRequestHandler):
             self._dispatch(lambda: notify_all(load_fleet().notify, "Nakama からのテスト通知です。", "Nakama テスト"))
         elif url.path == "/api/tasks/due":
             self._dispatch(lambda: set_task_due(body))
+        elif url.path == "/api/wbs/update":
+            from . import wbs
+            def wbs_update():
+                r = wbs.stage(str(body.get("id", "")), str(body.get("sheet", "")), int(body.get("row", 0)),
+                              str(body.get("field", "")), str(body.get("value", "")), str(body.get("reason", "")),
+                              expected_no=str(body.get("no", "")))
+                for k in (("wbs-index",), ("wbs-mine",)):  # the task list must show the change right away
+                    _ttl_cache.pop(k, None)
+                return r
+            self._dispatch(wbs_update)
+        elif url.path in ("/api/wbs/flush", "/api/wbs/discard"):
+            from . import wbs
+            def wbs_flush():
+                r = wbs.flush(str(body.get("id", ""))) if url.path.endswith("flush") else wbs.discard(str(body.get("pid", "")))
+                for k in (("wbs-index",), ("wbs-mine",)):
+                    _ttl_cache.pop(k, None)
+                return r
+            self._dispatch(wbs_flush)
+        elif url.path == "/api/decks/job":
+            self._dispatch(lambda: deck_job(str(body.get("kind", "")), str(body.get("meeting", "")), str(body.get("path", ""))))
+        elif url.path == "/api/decks/template":
+            from . import decks
+            self._dispatch(lambda: {"path": decks.save_template(str(body.get("meeting", "")))})
+        elif url.path == "/api/agenda/add":
+            from . import agenda
+            self._dispatch(lambda: agenda.add(str(body.get("meeting", "")), str(body.get("topic", "")), str(body.get("owner", "")),
+                                              str(body.get("next_action", "")), str(body.get("due", "")), str(body.get("status") or "carry")))
+        elif url.path == "/api/agenda/update":
+            from . import agenda
+            self._dispatch(lambda: agenda.update(str(body.get("id", "")), body.get("status"), str(body.get("note", "")),
+                                                 body.get("next_action"), body.get("owner"), body.get("due")))
+        elif url.path == "/api/agenda/suggestion":
+            from . import agenda
+            self._dispatch(lambda: {"item": agenda.handle_suggestion(str(body.get("file", "")), int(body.get("index", -1)), bool(body.get("accept")))})
+        elif url.path == "/api/brief/run":
+            def run_brief():
+                if _is_running("asa"):
+                    raise ValueError("Asa は実行中です")
+                with _spawn_lock:
+                    _spawned["asa"] = spawn_agent("asa", force=True, extra_args=["--extra", brief_material()])
+                return {"started": True}
+            self._dispatch(run_brief)
+        elif url.path == "/api/reminders/add":
+            from . import reminders
+            self._dispatch(lambda: reminders.add(str(body.get("date", "")), str(body.get("title", "")), str(body.get("link", "")),
+                                                 str(body.get("note", "")), int(body.get("lead_days", 1))))
+        elif url.path == "/api/reminders/done":
+            from . import reminders
+            self._dispatch(lambda: reminders.set_done(str(body.get("id", "")), body.get("done", True) is not False))
+        elif url.path == "/api/projects/save":
+            from . import projects
+            self._dispatch(lambda: {"projects": projects.upsert(str(body.get("name", "")),
+                                                               [str(f) for f in body.get("folders") or []], str(body.get("note", "")))})
+        elif url.path == "/api/projects/delete":
+            from . import projects
+            self._dispatch(lambda: {"projects": projects.delete(str(body.get("name", "")))})
+        elif url.path == "/api/vault/config":
+            from . import vault
+            claude = body.get("claude")
+            self._dispatch(lambda: vault.configure(body.get("root"), body.get("folder"), body.get("mode"),
+                                                   None if claude is None else bool(claude),
+                                                   token=self.headers.get("X-Vault-Token", "")))
+        elif url.path == "/api/vault/password":
+            from . import vault
+            self._dispatch(lambda: (vault.set_password(str(body.get("new", "")), str(body.get("current", ""))) or {"ok": True}))
+        elif url.path == "/api/vault/unlock":
+            from . import vault
+            self._dispatch(lambda: {"token": vault.unlock(str(body.get("password", "")))})
+        elif url.path == "/api/vault/save":
+            from . import vault
+            self._dispatch(lambda: vault.write(str(body.get("rel", "")), str(body.get("text", "")), float(body.get("mtime") or 0),
+                                               self.headers.get("X-Vault-Token", "")))
         elif url.path == "/api/note/save":
             from . import todo_note
             self._dispatch(lambda: todo_note.save_raw(str(body.get("text", "")), float(body.get("mtime") or 0)))
+        elif url.path == "/api/note/addchild":
+            self._dispatch(lambda: add_note_child(body))
         elif url.path == "/api/note/add":
             self._dispatch(lambda: add_note_task(str(body.get("text", "")), bool(body.get("star"))))
         elif url.path == "/api/assist":
@@ -1765,11 +2430,25 @@ def make_server(host: str = "127.0.0.1", port: int = 8765) -> ThreadingHTTPServe
     return _Server((host, port), handler)
 
 
+def _warm_wbs() -> None:
+    """q118: keep the WBS file discovery warm so the WBS tab opens in well under a second."""
+    from . import wbs
+
+    while True:
+        try:
+            wbs.discover(refresh=True)  # re-walk in the background; users always hit the cache
+            wbs.index(date.today())
+        except Exception:  # noqa: BLE001 - warming is best effort
+            log.exception("WBS warm-up failed")
+        time.sleep(wbs.DISCOVER_TTL - 60)
+
+
 def serve_ui(host: str = "127.0.0.1", port: int = 8765, background: bool = False,
              open_browser: bool = False) -> ThreadingHTTPServer:
     server = make_server(host, port)  # the socket is bound here, so the browser can connect right away
     url = f"http://localhost:{port}/"
     log.info("Nakama UI: %s", url)
+    threading.Thread(target=_warm_wbs, daemon=True).start()
     if open_browser:
         import webbrowser
 

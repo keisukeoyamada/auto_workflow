@@ -59,3 +59,35 @@ def test_devreq_keeps_open_items_open(tmp_path, monkeypatch):
     assert devreq.load()[0]["status"] == "partial"
     with pytest.raises(ValueError):
         devreq.update(a["id"], status="finished")
+
+
+def test_star_toggles_only_the_prefix(note):
+    item = next(i for i in todo_note.load()["items"] if i["text"] == "first")
+    r = todo_note.set_star(item["line"], item["raw"], True)
+    assert r["raw"] == "★□first"
+    starred = next(i for i in todo_note.load()["items"] if i["text"] == "first")
+    assert starred["star"]
+    todo_note.set_star(starred["line"], starred["raw"], False)
+    assert note.read_text(encoding="utf-8") == NOTE                      # back to exactly the original
+
+
+def test_add_child_goes_under_parent_subtree_with_tab(tmp_path, monkeypatch):
+    f = tmp_path / "n.md"
+    f.write_text("# ASAP\n□親\n\t□子1\n\t\t□孫\n□別\n", encoding="utf-8")
+    monkeypatch.setattr(todo_note, "note_path", lambda: f)
+    monkeypatch.setattr(todo_note, "BACKUP_DIR", tmp_path / "bk")
+    items = todo_note.parse(f.read_text(encoding="utf-8"))
+    assert [i["parent_line"] for i in items] == [-1, 1, 2, -1]
+    todo_note.add_child(1, "□親", "子2")
+    assert f.read_text(encoding="utf-8").splitlines() == ["# ASAP", "□親", "\t□子1", "\t\t□孫", "\t□子2", "□別"]
+
+
+def test_unified_rows_nest_note_children():
+    from nakama import ui
+
+    rows = [{"source": "note", "line": 2, "parent_line": 1, "title": "親 › 子", "text": "子", "status": "open"},
+            {"source": "planner", "line": 0, "title": "P", "status": "open"},
+            {"source": "note", "line": 1, "parent_line": -1, "title": "親", "text": "親", "status": "open"},
+            {"source": "note", "line": 9, "parent_line": 5, "title": "消えた親 › 孤児", "text": "孤児", "status": "open"}]
+    out = ui._nest_note_rows(rows)
+    assert [(r["title"], r.get("depth")) for r in out] == [("P", None), ("親", 0), ("子", 1), ("消えた親 › 孤児", 0)]

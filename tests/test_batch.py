@@ -59,3 +59,91 @@ def test_due_dates(tmp_path, monkeypatch):
     assert routines.progress("2026-11")["r1"]["due"] == "2026-11-20"
     with pytest.raises(ValueError):
         routines.set_due_override("r1", "2026-11", "2026-12-01")       # must be inside that month
+
+
+def test_reminders_show_until_done(tmp_path, monkeypatch):
+    from datetime import date
+
+    from nakama import reminders
+
+    monkeypatch.setattr(reminders, "FILE", tmp_path / "r.json")
+    r = reminders.add("2026-11-27", "締め切り", "https://example.com/x", lead_days=1)
+    assert [x["id"] for x in reminders.due(date(2026, 11, 26))] == [r["id"]]   # from the day before
+    assert reminders.due(date(2026, 11, 25)) == []
+    assert reminders.due(date(2026, 11, 30))                                  # overdue stays until done
+    reminders.set_done(r["id"])
+    assert reminders.due(date(2026, 11, 30)) == []
+    with pytest.raises(ValueError):
+        reminders.add("2026-11-27", "x", "javascript:alert(1)")              # links must be http(s)
+
+
+def test_star_store_and_related_wbs(tmp_path, monkeypatch):
+    monkeypatch.setattr(ui, "STARS_FILE", tmp_path / "stars.json")
+    ui.star_task({"source": "routine", "key": "routine-r001-2026-11", "star": True})
+    assert ui._load_stars() == {"routine-r001-2026-11": True}
+    with pytest.raises(ValueError):
+        ui.star_task({"source": "planner", "key": "../../x", "star": True})
+    index = [{"id": "w1", "name": "x_WBS.xlsx", "path_key": "cworkreswinserver02win2025replacexwbsxlsx"}]
+    assert [w["id"] for w in ui._related_wbs("★Winserverのアップデート", index)] == ["w1"]
+    assert ui._related_wbs("短い data の話", index) == []                     # short / common words do not match
+
+
+def test_reminder_draft_message_for_polls():
+    from datetime import date
+
+    from nakama import reminders
+
+    r = {"date": "2026-11-27", "title": "忘年会の調整さんの締め切り", "link": "https://chouseisan.com/s?h=x"}
+    today = reminders.draft_message(r, date(2026, 11, 27))
+    assert today.startswith("【リマインド】忘年会の調整さん") and "本日 11/27（金）" in today and "https://chouseisan.com/s?h=x" in today
+    assert "出欠" in today
+    assert "過ぎていますが" in reminders.draft_message(r, date(2026, 11, 30))
+    assert "出欠" not in reminders.draft_message({"date": "2026-12-01", "title": "資料提出", "link": ""}, date(2026, 11, 27))
+
+
+def test_reminder_assist_asks_for_message():
+    from nakama import ui
+
+    p = ui.assist_prompt("notice", {"kind": "reminder", "title": "調整さん", "draft": "【リマインド】…"})["prompt"]
+    assert "催促" in p and "こちらでいかがでしょう" in p
+
+
+def test_chat_actions_need_explicit_approval(tmp_path, monkeypatch):
+    from nakama import chat
+
+    monkeypatch.setattr(chat, "CHATS_DIR", tmp_path)
+    m = chat.new_chat()
+    assert not chat.actions_enabled(m["id"])
+    chat.set_actions(m["id"], True)
+    assert chat.actions_enabled(m["id"])
+    chat.add_user_message(m["id"], "今日の朝会です\n- A さん: 資料作成 12/1")
+    assert not chat.approval_ok(m["id"], "今日の朝会です")          # pasting minutes is not an approval
+    chat.add_user_message(m["id"], "0 と 1 を昇格して")
+    assert chat.approval_ok(m["id"], "0 と 1 を昇格して")
+    assert not chat.approval_ok(m["id"], "2 を昇格して")            # words the user did not write
+    guard = chat._guard_for_chat(actions=False)
+    import asyncio
+    denied = asyncio.run(guard({"tool_name": "mcp__kihyo__approve", "tool_input": {}}, None, None))
+    assert denied["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert asyncio.run(chat._guard_for_chat(actions=True)({"tool_name": "mcp__kihyo__approve", "tool_input": {}}, None, None)) == {}
+
+
+def test_script_message_fills_plan_and_picks_landing(monkeypatch):
+    from nakama import scripts
+
+    out = "x\n=====\n報告メール貼り付け用\n=====\n・SIT(計画値$XXXXX)*税抜き\n月末見込み:$2,553.35\n計画値内着地/超過見込み\n\n" \
+          "・PRD(計画値$XXXXX)*税抜き\n月末見込み:$16,275.11\n計画値内着地/超過見込み"
+    spec = {"id": "t", "command": ["x"], "extract_after": "報告メール貼り付け用", "template": "宛先さん\n{output}\n以上",
+            "plan_values": {"SIT": 3000, "PRD": 16000}}
+    msg = scripts.build_message(spec, out)
+    assert msg.startswith("宛先さん\n・SIT(計画値$3,000)") and "計画値内着地見込み" in msg and "超過見込み" in msg
+    assert "=====" not in msg and "x\n" not in msg
+
+
+def test_script_registry_only_runs_listed(monkeypatch):
+    from nakama import scripts
+
+    monkeypatch.setattr(scripts, "registry", lambda: [{"id": "ok", "command": ["echo"]}])
+    import pytest
+    with pytest.raises(scripts.ScriptError):
+        scripts.run("rm-rf")
