@@ -1741,9 +1741,6 @@ class _Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/holidays/import":
             from . import bizdays
             self._dispatch(bizdays.import_cao_csv)
-        elif url.path == "/api/rongo/import":
-            from . import rongo
-            self._dispatch(rongo.import_source)
         elif url.path == "/api/rongo/read":
             from . import rongo
             self._dispatch(lambda: rongo.mark_read(str(body.get("id", "")), bool(body.get("read", True))))

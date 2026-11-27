@@ -1203,17 +1203,11 @@ async function renderRongo(id) {
       <code>enabled: true</code> にすると使えます（書き方は config/fleet.example.yaml）。</div></div>`;
     return;
   }
-  if (!r.imported) {
-    main.innerHTML = `<div class="card"><h2>はじめに: 原文を取り込む</h2>
-      <p>論語の原文（全 20 篇・約 500 章・50KB ほど。著作権の切れた古典）を Chinese Text Project からこの NAS に一度だけ取り込みます。20 秒ほどかかります。</p>
-      <button class="btn primary" id="rg-import">原文を取り込む</button></div>`;
-    return;
-  }
   const c = r.current, g = r.generation || {};
   const pct = r.total ? Math.round(r.read / r.total * 100) : 0;
   const isNext = c.id === r.next_id;
   const note = c.note ? `<div class="md">${renderMarkdown(c.note)}</div>`
-    : `<div class="empty" style="text-align:left;padding:8px 0">解説はまだありません。毎朝（${esc(r.schedule)}）、この先の章の分をまとめて作ります。
+    : `<div class="empty" style="text-align:left;padding:8px 0">解説はまだありません。${esc(r.schedule_ja || r.schedule)}に、この先の章の分をまとめて作ります。
         ${g.running ? "<br>いま作成中です…" : `<br><button class="btn" id="rg-gen" data-id="${esc(c.id)}" style="margin-top:6px">今すぐ作る</button>`}</div>`;
   const genInfo = g.error ? `<div class="cal-legend" style="color:var(--bad)">解説の作成に失敗: ${esc(g.error)}（${esc((g.at || "").replace("T", " "))}）</div>` : "";
   main.innerHTML = `
@@ -1244,15 +1238,9 @@ async function renderRongo(id) {
   if (g.running) { clearTimeout(state.rgPoll); state.rgPoll = setTimeout(() => { if (state.tab === "rongo") renderRongo(c.id); }, 5000); }
 }
 document.addEventListener("click", async ev => {
-  const t = ev.target.closest("[data-rgid],#rg-import,#rg-read,#rg-unread,#rg-gen");
+  const t = ev.target.closest("[data-rgid],#rg-read,#rg-unread,#rg-gen");
   if (!t) return;
   if (t.dataset.rgid !== undefined) { await renderRongo(t.dataset.rgid); window.scrollTo(0, 0); return; }
-  if (t.id === "rg-import") {
-    t.disabled = true; t.textContent = "取り込み中…（20 秒ほど）";
-    try { const r = await api("/api/rongo/import", {}); toast(`原文を取り込みました（${r.books} 篇・${r.chapters} 章）`); renderRongo(); }
-    catch (e) { toast(e.message); t.disabled = false; t.textContent = "原文を取り込む"; }
-    return;
-  }
   if (t.id === "rg-read" || t.id === "rg-unread") {
     try {
       await api("/api/rongo/read", { id: t.dataset.id, read: t.id === "rg-read" });

@@ -87,7 +87,7 @@ credit:
   #   holder: ["ご利用者"]
 
 # The Analects, one chapter a day (Personal > 論語). Off unless enabled.
-# The original text (public domain, ~500 chapters) is downloaded once from ctext.org with a button on the tab.
+# The original text (public domain, 512 chapters) ships with the app: nakama/data/lunyu.json.
 # Every morning Claude writes 書き下し文 / 現代語訳 / 語句 / 教訓 / 今日の問い for the next few unread chapters
 # (one short call per chapter; needs the same Claude credential as the agents). Data: workspace/rongo/.
 rongo:
