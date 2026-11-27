@@ -139,13 +139,27 @@ def test_notifications_from_decisions_and_ack(tmp_path, monkeypatch):
         "dropped": [{"title": "B", "kind": "unclear", "reason": "r"}, {"title": "C", "kind": "dup"}, {"title": "D"}, 42],
         "needs_attention": "not-a-list",
     }), encoding="utf-8")
-    kinds = [i["kind"] for i in ui.notifications()["items"] if i["group"].startswith("Kihyo")]
-    assert kinds == ["created", "unclear", "dup"]                    # dups folded into one row, junk ignored
+    kihyo = lambda: [i["kind"] for i in ui.notifications()["items"] if i["group"].startswith("Kihyo")]  # noqa: E731
+    assert kihyo() == []                                             # q120: ticketing results stay in the report
+    monkeypatch.setattr(ui, "KIHYO_DETAIL_IN_FEED", True)
+    assert kihyo() == ["created", "unclear", "dup"]                  # dups folded into one row, junk ignored
     first = ui.notifications()["items"][0]
     ui.ack_notifications([first["id"], "not-an-id"])
     after = ui.notifications()
     assert first["id"] not in [i["id"] for i in after["items"]]      # OK hides it from the feed
     assert any(i["id"] == first["id"] and i["acked"] for i in ui.notifications(include_acked=True)["items"])
+
+
+def test_meeting_prompt_and_reference_pdf(tmp_path, monkeypatch):
+    assert ui._prompt_section("x\n## プロンプト\n＋＋\n本文\n\n## 実行例\nfoo") == "本文"
+    assert ui._prompt_section("no heading") == "no heading"
+    monkeypatch.setattr(ui, "REFERENCES_DIR", tmp_path)
+    (tmp_path / "a.pdf").write_bytes(b"%PDF-1.4")
+    assert [r["name"] for r in ui.reference_pdfs()] == ["a.pdf"]
+    assert ui._reference_path("a.pdf").name == "a.pdf"
+    for bad in ("../a.pdf", "sub/a.pdf", "a.txt", ""):
+        with pytest.raises(PermissionError):
+            ui._reference_path(bad)
 
 
 def test_schedule_today_lists_planned_times():

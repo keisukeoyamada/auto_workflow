@@ -67,11 +67,11 @@ def item_key(section: str, text: str) -> str:
 
 
 def parse(text: str) -> list[dict[str, Any]]:
-    items, section, parents = [], "", []
+    items, section, parents, plines = [], "", [], []
     for n, line in enumerate(text.splitlines()):
         h = HEADING_RE.match(line)
         if h and not line.startswith("#" * 7):
-            section, parents = h.group(2).strip(), []
+            section, parents, plines = h.group(2).strip(), [], []
             continue
         m = ITEM_RE.match(line)
         if not m or section.lower().startswith("archive"):
@@ -79,11 +79,13 @@ def parse(text: str) -> list[dict[str, Any]]:
         depth = len(m.group("indent").replace("    ", "\t"))
         body = m.group("text")
         parents = parents[:depth] + [_clean(body)]
+        plines = plines[:depth] + [n]
         items.append({
             "line": n, "raw": line, "section": section, "depth": depth,
             "done": m.group("box") == "■", "star": "★" in m.group("prefix"),
             "prefix": m.group("prefix").replace("★", "").strip(),
             "text": _clean(body), "parent": parents[-2] if depth and len(parents) > 1 else "",
+            "parent_line": plines[-2] if depth and len(plines) > 1 else -1,
             "key": item_key(section, body),
             "due": (DUE_RE.search(body).group(1) if DUE_RE.search(body) else ""),
         })
@@ -172,6 +174,40 @@ def add_item(text: str, section: str | None = None, star: bool = False) -> dict[
     return {"line": at, "raw": new_line, "section": section}
 
 
+def add_child(parent_line: int, parent_raw: str, text: str, star: bool = False) -> dict[str, Any]:
+    """Add □text one level below an existing item, after its last descendant (keeps the file's indent style)."""
+    text = " ".join(text.split())
+    if not text:
+        raise NoteError("内容が空です")
+    if len(text) > 500:
+        raise NoteError("500 字までにしてください")
+    path = note_path()
+    if path is None or not path.exists():
+        raise NoteError("todo_note.path が未設定か、ファイルがありません")
+    body, nl = _read(path)
+    lines = body.splitlines()
+    i = _locate(lines, parent_line, parent_raw)
+    m = ITEM_RE.match(lines[i])
+    if not m:
+        raise NoteError("親が ToDo 行ではありません")
+    base = m.group("indent")
+    width = lambda ind: len(ind.replace("    ", "\t"))  # noqa: E731 - depth in levels
+    at, child_indent = i + 1, ""
+    while at < len(lines):  # skip the parent's existing subtree (deeper items and blank-free continuation)
+        cm = ITEM_RE.match(lines[at])
+        if not cm or width(cm.group("indent")) <= width(base) or HEADING_RE.match(lines[at]):
+            break
+        if width(cm.group("indent")) == width(base) + 1 and not child_indent:
+            child_indent = cm.group("indent")
+        at += 1
+    if not child_indent:  # first child: tab if the file uses tabs (Obsidian default), else 4 spaces
+        child_indent = base + ("\t" if ("\t" in base or any(l.startswith("\t") for l in lines) or not base) else "    ")
+    new_line = child_indent + ("★" if star else "") + "□" + text
+    lines.insert(at, new_line)
+    _write(path, lines, nl, body.endswith(("\n", "\r\n")))
+    return {"line": at, "raw": new_line}
+
+
 def read_raw() -> dict[str, Any]:
     """Whole note for the free-form editor (same file Obsidian edits)."""
     path = note_path()
@@ -213,3 +249,24 @@ def set_due(line_no: int, raw: str, due: str) -> dict[str, Any]:
     lines[i] = f"{line} 📅 {due}" if due else line
     _write(path, lines, nl, text.endswith(("\n", "\r\n")))
     return {"line": i, "raw": lines[i]}
+
+
+def set_star(line_no: int, raw: str, star: bool) -> dict[str, Any]:
+    """Add/remove the owner's ★ right before the box on one line (same notation as in Obsidian)."""
+    path = note_path()
+    if path is None or not path.exists():
+        raise NoteError("todo_note.path が未設定か、ファイルがありません")
+    text, nl = _read(path)
+    lines = text.splitlines()
+    i = _locate(lines, line_no, raw)
+    m = ITEM_RE.match(lines[i])
+    if not m:
+        raise NoteError("ToDo 行ではありません")
+    prefix = m.group("prefix")
+    has = "★" in prefix
+    if has == star:
+        return {"line": i, "raw": lines[i], "changed": False}
+    new_prefix = prefix.replace("★", "", 1) if has else "★" + prefix
+    lines[i] = m.group("indent") + new_prefix + m.group("box") + m.group("text")
+    _write(path, lines, nl, text.endswith(("\n", "\r\n")))
+    return {"line": i, "raw": lines[i], "changed": True}

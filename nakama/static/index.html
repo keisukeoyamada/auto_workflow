@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Nakama</title>
+<title>ダッシュボード</title>
 <style>
   :root {
     --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085; --line: #e3e6eb;
@@ -91,15 +91,17 @@
   .card h2 .right { float: right; }
   .dash { display: grid; gap: 16px; align-items: start;
           grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(260px, 340px);
-          grid-template-areas: "agents tasks esc" "cal sched esc" "recent recent esc"; }
+          grid-template-areas: "tasks tasks esc" "cal sched esc" "agents recent esc"; }  /* q130: tasks first, agents lower */
   .dash > .card { margin: 0; min-width: 0; }
   .dash .sq { aspect-ratio: 1 / 1; overflow: auto; }
   .dash .rightcol { grid-area: esc; position: sticky; top: 12px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   .dash .rightcol > .card { margin: 0; }
   .dash .esc { max-height: calc(60vh); overflow: auto; }
-  @media (max-width: 1100px) { .dash { grid-template-columns: 1fr 1fr; grid-template-areas: "agents tasks" "esc esc" "cal sched" "recent recent"; }
+  .dash .tasksq { aspect-ratio: auto; max-height: 70vh; overflow: auto; }
+  #sysinfo { color: var(--muted); font-size: 11px; display: flex; gap: 14px; flex-wrap: wrap; padding: 0 24px 24px; }
+  @media (max-width: 1100px) { .dash { grid-template-columns: 1fr 1fr; grid-template-areas: "tasks tasks" "esc esc" "cal sched" "agents recent"; }
                                .dash .rightcol { position: static; } .dash .esc { max-height: none; } }
-  @media (max-width: 760px) { .dash { grid-template-columns: 1fr; grid-template-areas: "agents" "tasks" "esc" "cal" "sched" "recent"; }
+  @media (max-width: 760px) { .dash { grid-template-columns: 1fr; grid-template-areas: "tasks" "esc" "cal" "sched" "agents" "recent"; }
                               .dash .sq { aspect-ratio: auto; } }
   .agent-row { display: flex; align-items: center; gap: 8px; padding: 7px 2px; border-bottom: 1px solid var(--line); }
   .agent-row .when { color: var(--muted); font-size: 12px; margin-left: auto; }
@@ -203,6 +205,36 @@
   td.hl-row, th.hl-row { background: color-mix(in srgb, var(--accent) 10%, transparent) !important; }
   td.hl-col, th.hl-col { background: color-mix(in srgb, var(--accent) 10%, transparent) !important; }
   td.hl-cell { background: color-mix(in srgb, var(--accent) 28%, transparent) !important; outline: 2px solid var(--accent); outline-offset: -2px; }
+  /* frozen header row (and first column of the date grids) */
+  .tablewrap { max-height: 72vh; overflow: auto; }
+  .sq .tablewrap, .esc .tablewrap, .card.small .tablewrap, .ndetail .tablewrap { max-height: none; overflow: visible; }
+  table tr:first-child > th { position: sticky; top: 0; z-index: 2; background: var(--panel); box-shadow: 0 1px 0 var(--line); }
+  table.cal tr:first-child > th.name, table.rgrid tr:first-child > th.nm { z-index: 4; left: 0; }
+  table.rgrid tr:first-child > th.we, table.cal tr:first-child > th.we { background: var(--code); }
+  table.rgrid tr:first-child > th.hol { background: var(--off); }
+  td.due.pick { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+  td.due.pick:hover { color: var(--accent); }
+  /* compact WBS */
+  table.wbs { table-layout: fixed; width: 100%; font-size: 12.5px; }
+  table.wbs td, table.wbs th { padding: 4px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  table.wbs select { font-size: 12px; padding: 1px 4px; }
+  /* WBS sheet: paper-like white table regardless of theme; finished rows are greyed out */
+  .wbs-light { background: #fff; color: #1d1d1f; border-color: #d9d9de; }
+  .wbs-light table.wbs th { background: #f2f2f5; color: #3a3a3c; }
+  .wbs-light table.wbs td { border-color: #e6e6ea; }
+  .wbs-light tr.parent td { background: #eef3fb; font-weight: 600; }
+  .wbs-light tr.done td { background: #e9e9ec; color: #8e8e93; }
+  .wbs-light tr.done td a { color: #8e8e93; }
+  .wbs-light select { background: #fff; color: #1d1d1f; border: 1px solid #c7c7cc; }
+  .wbs-light .muted, .wbs-light .est { color: #8e8e93; }
+  .wbs-light .est { font-style: italic; }
+  .wbs-light td.hl-row, .wbs-light td.hl-col, .wbs-light th.hl-col { background: #dbe8ff !important; }
+  .gantt-wrap { overflow: auto; max-height: 260px; border: 1px solid var(--line); border-radius: 10px; }
+  .gantt-wrap.big { max-height: 80vh; }
+  .split.nolist { grid-template-columns: 1fr; } .split.nolist > .list { display: none; }
+  td.pend, select.pend { box-shadow: inset 0 0 0 2px var(--warn); }
+  svg.gantt text { font: 11px system-ui, sans-serif; fill: var(--text); }
+  svg.gantt .muted { fill: var(--muted); }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   input, select { padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); font: inherit; }
   pre.log { background: var(--code); padding: 12px; border-radius: 8px; overflow: auto; max-height: 75vh; font-size: 12px; margin: 0; }
@@ -261,55 +293,103 @@
   #toast { position: fixed; right: 16px; bottom: 16px; background: var(--text); color: var(--bg); padding: 10px 14px;
            border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 80vw; }
   #toast.show { opacity: .95; }
+  .nrow.hot { border-left: 3px solid var(--bad); padding-left: 6px; font-weight: 600; }
+  /* q119: memo pad reachable from every screen */
+  #qmemo-btn { position: fixed; left: 16px; bottom: 16px; z-index: 40; border-radius: 999px; width: 44px; height: 44px; font-size: 20px;
+               border: 1px solid var(--line); background: var(--panel); cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.12); }
+  #qmemo { position: fixed; left: 16px; bottom: 70px; z-index: 40; width: min(380px, calc(100vw - 32px)); background: var(--panel);
+           border: 1px solid var(--line); border-radius: 12px; padding: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.16); display: none; }
+  #qmemo.open { display: block; } #qmemo textarea { width: 100%; min-height: 110px; box-sizing: border-box; }
+  body.only #nav, body.only header, body.only #desc, body.only #chatpanel, body.only #qmemo-btn, body.only #sysinfo,body.only #wbs-shareopen { display: none !important; }
+  /* --- q067: quieter look: more whitespace, soft shadows instead of borders, fewer colours --- */
+  :root { --radius: 14px; }
+  body { font-size: 14.5px; letter-spacing: .01em; -webkit-font-smoothing: antialiased; }
+  header { position: sticky; top: 0; z-index: 10; backdrop-filter: saturate(180%) blur(12px);
+           background: color-mix(in srgb, var(--panel) 82%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+  header h1 { font-weight: 650; letter-spacing: -.01em; }
+  /* no top bar: the header is only the floating chat button (status line lives in the footer) */
+  header { position: fixed; top: 8px; right: 16px; left: auto; padding: 0; z-index: 20; background: none;
+           border: 0; backdrop-filter: none; width: auto; }
+  #nav { padding-right: 56px; }  /* room for the floating chat button */
+  #nav { position: sticky; top: var(--hdr-h, 52px); z-index: 9; background: var(--bg); }
+  .card, .tile, .list, .viewer { border: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+                                 box-shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 6px 20px rgba(0, 0, 0, .04); }
+  .card { padding: 18px 20px; } .card h2 { font-size: 15px; font-weight: 600; letter-spacing: -.005em; margin-bottom: 12px; }
+  .tile { padding: 14px 16px; } .tile .value { font-weight: 600; letter-spacing: -.02em; }
+  main { padding: 16px 24px 48px; } .dash { gap: 20px; }
+  nav button { border-radius: 999px; padding: 6px 14px; } nav button.active { background: var(--accent-soft); }
+  nav.sub button { border-radius: 999px; }
+  th { font-weight: 500; letter-spacing: .02em; } td, th { border-bottom-color: color-mix(in srgb, var(--line) 60%, transparent); }
+  .pill { border-radius: 999px; padding: 1px 9px; }
+  button.btn { border-radius: 999px; padding: 5px 12px; } input, select, textarea { border-radius: 10px; }
 </style>
 </head>
 <body>
 <header>
-  <h1>Nakama</h1>
-  <div class="meta" id="hdr"></div>
   <button class="btn chatbtn" id="chat-toggle" title="Claude に相談（読み取り専用）">💬</button>
 </header>
 <div id="nav" class="navwrap"></div>
 <div id="desc" class="tabdesc"></div>
 <main id="main"></main>
+<footer id="sysinfo"></footer>
 <div id="toast"></div>
+<button id="qmemo-btn" title="メモ（どの画面からでも）">📝</button>
+<div id="qmemo"><div class="row" style="justify-content:space-between;margin-bottom:6px"><strong>📝 メモ</strong>
+  <span class="cal-legend" style="margin:0">Ctrl+Enter で保存</span></div>
+  <textarea id="qmemo-text" placeholder="気づいたこと・フィードバック（今の画面名が先頭に付きます）"></textarea>
+  <div class="row" style="margin-top:6px;gap:6px"><button class="btn primary" id="qmemo-save">メモに保存</button>
+    <button class="btn" id="qmemo-task" title="手書きノートにタスクとして追加">📓 タスクにする</button>
+    <button class="btn" id="qmemo-close" style="margin-left:auto">閉じる</button></div></div>
 <aside id="chatpanel" aria-label="チャット">
   <div class="chead"><select id="chat-select" title="チャットを切り替え"></select>
     <button class="btn" id="chat-new" title="新しいチャット">＋</button>
+    <label class="cal-legend" style="margin:0;cursor:pointer;white-space:nowrap" title="オンにすると、このチャットは貼った議事メモから起票の draft を作り、あなたが「昇格して」と書いたときだけ Planner に起票できます（ファイル変更・コマンド実行は不可のまま）"><input type="checkbox" id="chat-actions"> ✏️ 起票操作</label>
     <button class="btn" id="chat-close" title="閉じる">✕</button></div>
   <div id="chatlog"><div class="empty">読み込み中…</div></div>
   <div class="cfoot"><textarea id="chat-text" placeholder="automate_workflow について質問（Ctrl+Enter で送信）。このチャットは読み取り専用です"></textarea>
-    <div class="row" style="margin-top:6px"><select id="chat-model" title="新しいチャットのモデル"><option value="claude-sonnet-5-5">Sonnet（速い）</option>
-      <option value="claude-opus-5-5">Opus（じっくり）</option></select>
+    <div class="row" style="margin-top:6px"><select id="chat-model" title="新しいチャットのモデル"><option value="claude-opus-5-5">Opus（じっくり）</option>
+      <option value="claude-sonnet-5-5">Sonnet（速い）</option></select>
       <span style="margin-left:auto"></span><button class="btn primary" id="chat-send">送信</button></div></div>
 </aside>
 
 <script>
 const TOKEN = "__NAKAMA_TOKEN__";
+const ONLY = new URLSearchParams(location.search).get("only") || "";  // q125: ?only=wbs shows that tab alone (for sharing)
+if (ONLY) { document.documentElement.classList.add("only"); addEventListener("DOMContentLoaded", () => document.body.classList.add("only")); }
+// q107: keep the tab rows pinned right under the header, whatever its height
+// The header is now just a floating chat button, so the tabs pin to the very top.
+const pinNav = () => document.documentElement.style.setProperty("--hdr-h", "0px");
+addEventListener("resize", pinNav); addEventListener("load", pinNav);
 const TABS = [
-  { id: "home", label: "ダッシュボード", desc: "エージェントの状態・今日のコスト・今後 2 週間の不在をひと目で見る場所。" },
-  { id: "tasks", label: "タスク", badge: c => c.my_tasks_open, desc: "自分のタスクを出典つきで一覧（🗂 Planner = Kihyo の起票履歴 × 最新の planner_state ／ 🔁 ルーティン = 今月の定常作業）。行を押すと作業メモ。" },
+  { id: "home", label: "ダッシュボード", desc: "状態・タスク・不在をひと目で。" },
+  { id: "tasks", label: "タスク", badge: c => c.my_tasks_open, desc: "自分のタスク（🗂 Planner / 🔁 ルーティン / 📓 ノート / 🧩 WBS）。行を押すと作業メモ。" },
   { id: "drafts", label: "下書き", desc: "エージェントが作ったメールの下書き。読んで手直しし、自分のメーラーから送る（Nakama は送信しない）。", kind: "drafts", badge: c => c.drafts },
   { id: "action_items", label: "要対応", desc: "エージェントが自分では判断せずに回してきた案件。対応したら done にする。", kind: "action_items", badge: c => c.action_items_open },
-  { id: "reports", label: "レポート", desc: "各エージェントが実行のたびに残す作業報告（処理件数・作ったもの・注意点）。", kind: "reports" },
-  { id: "inbox", label: "受信", desc: "Henji が返信下書きを作る対象の受信メール。status で処理済みかわかる。", kind: "inbox" },
-  { id: "leads", label: "リード", desc: "問い合わせなどの見込み客（営業のリード）。Furiwake が担当を割り当て、Sabaki が初回メールを下書きする。", kind: "leads" },
-  { id: "opportunities", label: "商談", desc: "進行中の商談（案件）の記録。Shoudan がメールや会議からステージ・次のアクションを更新する。", kind: "opportunities" },
-  { id: "assignments", label: "割り当て", desc: "Furiwake が毎朝作る「どのリードを誰に割り当てたか」の表。", kind: "assignments" },
+  { id: "reports", label: "レポート", desc: "エージェントごとの作業報告。", kind: "reports" },
+  { id: "inbox", label: "受信", desc: "Henji が返信案を作る受信メール。", kind: "inbox" },
+  { id: "leads", label: "リード", desc: "見込み客。Furiwake が割当、Sabaki が初回メール案。", kind: "leads" },
+  { id: "opportunities", label: "商談", desc: "商談の記録。Shoudan がステージと次の一手を更新。", kind: "opportunities" },
+  { id: "assignments", label: "割り当て", desc: "Furiwake の割り当て表（毎朝）。", kind: "assignments" },
   { id: "requests", label: "変更依頼", desc: "Coordinator への「指示をこう変えて」という依頼。書くと各エージェントの振る舞いが変わる。", kind: "requests", badge: c => c.requests_open },
-  { id: "attendance", label: "勤怠", desc: "チームの不在のかぶりチェックと、自分の勤怠を Teams / Loop に貼る文面（Kintai）。", kind: "attendance" },
-  { id: "knowledge", label: "ナレッジ", desc: "全エージェントが読むルール・文体・製品情報。ここを直すのがいちばん効く。", kind: "knowledge" },
-  { id: "devreq", label: "要望", desc: "Nakama への要望と対応状況。終わっていないものはオープンのまま残す（状態はここで変えられる）。" },
-  { id: "note", label: "ノート", desc: "手書きの ToDo ノート（Obsidian と同じファイル）を自由に編集。Tab で入れ子、Ctrl+Enter で □/■ 切り替え、Ctrl+S で保存。" },
-  { id: "overtime", label: "残業", desc: "残業の記録（開始・終了・理由）と申請文のコピー。平日 18:00 以降、今日の記録が無ければエスカレ欄と Slack/Teams でお知らせ。" },
+  { id: "attendance", label: "勤怠", desc: "チームの不在かぶりと、自分の勤怠の貼り付け文（Kintai）。", kind: "attendance" },
+  { id: "knowledge", label: "ナレッジ", desc: "全エージェントが読むルール・文体。ここを直すのが一番効く。", kind: "knowledge" },
+  { id: "devreq", label: "要望", desc: "Nakama（このシステム）への改善要望と対応状況。" },
+  { id: "decks", label: "資料", desc: "定例資料のテンプレ保管と添削（Tensaku）。" },
+  { id: "agenda", label: "持ち越し課題", desc: "定例の持ち越し課題。次回触れるものを一覧に。" },
+  { id: "completed", label: "完了済み", desc: "完了したものを一か所に。押すと保存場所へ。" },
+  { id: "wbs", label: "WBS", desc: "WBS（Excel）の進捗。編集は転記ボタンで Excel へ。" },
+  { id: "vault", label: "Vault", desc: "Obsidian Vault の閲覧・編集。🔒 は Claude に渡さない。" },
+  { id: "note", label: "ノート", desc: "手書き ToDo ノート。Tab で入れ子、Ctrl+S で保存。" },
+  { id: "overtime", label: "残業", desc: "残業の記録と申請文。" },
+  { id: "personal", label: "概要", desc: "個人用の機能の置き場所。fleet.yaml で有効にした機能がここに並ぶ。" },
   { id: "credit", label: "クレジット精算", feature: "credit", desc: "カード明細の CSV を取り込み、行ごとに誰が負担するかを振り分けて、各自と共同からの入金額を出す（fleet.yaml の credit で有効化）。" },
   { id: "rongo", label: "論語", feature: "rongo", desc: "論語を 1 日 1 章。原文・書き下し文・現代語訳・教訓・今日の問いを読んで「読んだ」を押す。全体の進み具合と連続日数も記録（fleet.yaml の rongo で有効化）。" },
-  { id: "routine", label: "ルーティン", desc: "定常作業を営業日ベースで管理（Excel の作業管理表と同じ見え方）。状態・作業メモ・祝日一覧もここで。" },
-  { id: "memos", label: "メモ", desc: "走り書きしたメモと、Kikitori の振り分け提案。ボタンを押したものだけが実行される（📋 起票 draft / 🗓️ 勤怠 / 📚 変更依頼 / 📝 保管）。" },
-  { id: "kihyo", label: "起票", desc: "議事メモ → Planner 起票（Kihyo）の状態・履歴・手動起票（検証してから承認）・これまでの経緯。" },
-  { id: "costs", label: "コスト", desc: "Nakama の実際の利用量（API 換算）と、ライセンスごとの月額の比較。" },
-  { id: "settings", label: "設定", desc: "自分用の設定・メンバー表・各エージェントへの追加指示・ナレッジを直接編集する（保存前に書式チェック、旧版は logs/settings-backup/ に保存）。" },
-  { id: "log", label: "ログ", desc: "常駐プロセスの動作ログ。動かない・スキップされたときの原因調査用。" },
+  { id: "routine", label: "ルーティン", desc: "定常作業を営業日ベースで管理。" },
+  { id: "memos", label: "メモ", desc: "走り書きメモと Kikitori の振り分け案。" },
+  { id: "kihyo", label: "起票", desc: "議事メモ → Planner 起票の状態・履歴・手動起票。" },
+  { id: "costs", label: "コスト", desc: "利用量（API 換算）とライセンス別の月額比較。" },
+  { id: "settings", label: "設定", desc: "設定・メンバー・エージェント指示の編集（旧版は自動バックアップ）。" },
+  { id: "log", label: "ログ", desc: "常駐プロセスのログ（原因調査用）。" },
   { id: "guide", label: "使い方", desc: "使い方と、データの保存先・送り先の説明。" },
 ];
 const store = {  // per-browser UI preferences; storage may be unavailable (private mode etc.)
@@ -319,14 +399,15 @@ const store = {  // per-browser UI preferences; storage may be unavailable (priv
 // Two-level navigation: groups on top, the group's tabs below.
 const GROUPS = [
   { id: "g-home", label: "ダッシュボード", tabs: ["home"] },
-  { id: "g-work", label: "タスク", tabs: ["tasks", "note", "routine", "kihyo"] },
+  { id: "g-work", label: "タスク", tabs: ["tasks", "completed", "wbs", "note", "vault", "routine", "kihyo"] },
   { id: "g-inbox", label: "対応", tabs: ["action_items", "drafts", "inbox", "memos", "requests"] },
   { id: "g-team", label: "勤怠", tabs: ["attendance", "overtime"] },
+  { id: "g-meet", label: "定例", tabs: ["agenda", "decks"] },
   { id: "g-sales", label: "営業", tabs: ["leads", "opportunities", "assignments"] },
   { id: "g-rec", label: "記録", tabs: ["reports", "knowledge", "costs", "log"] },
   // Personal: optional tabs that each instance turns on in fleet.yaml (home NAS: credit; work PC: e.g. career).
   // A group whose tabs are all off is not shown at all.
-  { id: "g-personal", label: "Personal", tabs: ["credit", "rongo"] },
+  { id: "g-personal", label: "Personal", tabs: ["personal", "credit", "rongo"] },
   { id: "g-sys", label: "設定", tabs: ["settings", "devreq", "guide"] },
 ];
 const groupOf = tabId => GROUPS.find(g => g.tabs.includes(tabId)) || GROUPS[0];
@@ -338,7 +419,7 @@ const sq = () => "samples=" + (state.samples ? "1" : "0");
 
 // ---------- utilities ----------
 async function api(path, body) {
-  const opt = { headers: { "X-Nakama-Token": TOKEN } };
+  const opt = { headers: { "X-Nakama-Token": TOKEN, "X-Vault-Token": (typeof state !== "undefined" && state.vaultToken) || "" } };
   if (body !== undefined) {
     opt.method = "POST";
     opt.headers["Content-Type"] = "application/json";
@@ -467,10 +548,10 @@ function setHTMLCached(id, html) {
 }
 function renderHeader() {
   const o = state.overview; if (!o) return;
-  setHTMLCached("hdr", [
-    o.owner && `オーナー: ${esc(o.owner)}`,
-    `認証: ${esc(o.auth)}`,
-    `<a href="#costs" data-tab="costs" style="color:inherit">本日 ${usd(o.spent)} / 予算 ${usd(o.budget)}</a>`,
+  // q130: status line is rarely needed -> page footer (the top stays free for tabs)
+  setHTMLCached("sysinfo", [
+    o.owner && `オーナー: ${esc(o.owner)}`, `認証: ${esc(o.auth)}`,
+    `<a href="#costs" data-tab="costs" style="color:inherit" title="定額プランなので実費ではなく、API 従量だった場合の換算額（トークンのチューニング用）">API 換算 本日 ${usd(o.spent)}</a>`,
     `更新 <span id="clock"></span> (${esc(o.timezone)})`,
     o.has_samples && `<label style="cursor:pointer"><input type="checkbox" id="samples-toggle" ${state.samples ? "checked" : ""}> サンプルを表示</label>`,
   ].filter(Boolean).map(s => `<span>${s}</span>`).join(""));
@@ -592,16 +673,23 @@ async function loadChats(selectId) {
   store.set("chatId", chat.id);
   document.getElementById("chat-select").innerHTML = chat.chats.map(c =>
     `<option value="${esc(c.id)}" ${c.id === chat.id ? "selected" : ""}>${esc(c.title)}（${esc(String(c.created).slice(5, 16).replace("T", " "))}）</option>`).join("");
+  const cur = chat.chats.find(c => c.id === chat.id) || {};
+  const box = document.getElementById("chat-actions"); if (box) box.checked = !!cur.actions;
+  const ta = document.getElementById("chat-text");
+  if (ta) ta.placeholder = cur.actions ? "質問、または朝会・夕会の議事メモを貼って「起票して」（Ctrl+Enter で送信）。昇格はあなたが「昇格して」と書いたときだけ"
+    : "automate_workflow について質問（Ctrl+Enter で送信）。このチャットは読み取り専用です";
   chat.n = 0; document.getElementById("chatlog").innerHTML = ""; pollChat();
 }
 async function newChat() {
-  try { const m = await api("/api/chats/new", { model: document.getElementById("chat-model").value }); await loadChats(m.id); }
+  try { const m = await api("/api/chats/new", { model: document.getElementById("chat-model").value });
+        if (store.get("chatActions") === "1") await api("/api/chats/actions", { chat: m.id, on: true });
+        await loadChats(m.id); }
   catch (e) { toast(e.message); }
 }
 function chatEventHtml(e) {
   if (e.type === "user") return `<div class="u">${esc(e.text)}</div>`;
   if (e.type === "assistant") return `<div class="a md">${renderMarkdown(e.text)}</div>`;
-  if (e.type === "tool") return `<div class="tl2">🔎 ${esc(e.text)}</div>`;
+  if (e.type === "tool") return `<div class="tl2">${/^mcp__kihyo__/.test(e.text) ? "✏️" : "🔎"} ${esc(e.text)}</div>`;
   if (e.type === "result") return `<div class="res">${e.turns} ターン・$${Number(e.cost || 0).toFixed(3)} 推定${e.error ? "・エラー" : ""}</div>`;
   if (e.type === "error") return `<div class="err">⚠ ${esc(e.text)}</div>`;
   return "";
@@ -635,12 +723,46 @@ document.addEventListener("keydown", ev => {
   if (ev.target.id === "chat-text" && ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); sendChat(); }
 });
 document.addEventListener("change", ev => { if (ev.target.id === "chat-select") loadChats(ev.target.value); });
+document.addEventListener("change", async ev => {
+  if (ev.target.id !== "chat-actions" || !chat.id) return;
+  const on = ev.target.checked;
+  try { await api("/api/chats/actions", { chat: chat.id, on }); store.set("chatActions", on ? "1" : "0");
+        toast(on ? "このチャットで起票操作を許可しました（昇格はあなたの「昇格して」の指示があるときだけ）" : "読み取り専用に戻しました");
+        await loadChats(chat.id); }
+  catch (e) { ev.target.checked = !on; toast(e.message); }
+});
+document.addEventListener("toggle", ev => {
+  if (ev.target.id === "brief-details") store.set("briefOpen", ev.target.open ? "1" : "0");
+  if (ev.target.dataset && ev.target.dataset.ganttsheet !== undefined) state.wbsGanttOpen = ev.target.open;
+}, true);
+document.addEventListener("change", async ev => {
+  if (ev.target.id !== "v-mode" && ev.target.id !== "v-claude") return;
+  const body = { folder: state.vaultRel };
+  if (ev.target.id === "v-mode") body.mode = ev.target.value; else body.claude = ev.target.checked;
+  try { await api("/api/vault/config", body); toast("フォルダの設定を保存しました"); renderVault(state.vaultRel); }
+  catch (e) { toast(e.message); renderVault(state.vaultRel); }
+});
 if (store.get("chatOpen") === "1") setTimeout(() => chatOpen(true), 0);
+
+// q119: memo pad on every screen; the current screen name is prefixed so the memo keeps its context
+async function quickMemo(asTask) {
+  const el = document.getElementById("qmemo-text"); const text = el.value.trim();
+  if (!text) { toast("メモを書いてください"); return; }
+  const where = (TABS.find(t => t.id === state.tab) || {}).label || state.tab;
+  try {
+    if (asTask) { const r = await api("/api/note/add", { text: `${text}（${where}から）`, star: false }); toast(`ノートの「${r.section || "先頭"}」にタスクとして追加しました`); }
+    else { await api("/api/memo", { text: `[${where}] ${text}` }); toast("メモを保存しました（Kikitori が振り分けます）"); }
+    el.value = ""; loadMemos();
+  } catch (e) { toast(e.message); }
+}
+document.addEventListener("keydown", ev => {
+  if (ev.target.id === "qmemo-text" && ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); quickMemo(false); }
+});
 
 // ---------- quick memos ----------
 // route: set by the curating agent in the memo's front matter (status stays "new" until then).
 const MEMO_ICON = { new: ["🆕", "未処理"], task: ["📋", "タスクへ（Kihyo の手動起票 draft）"], attendance: ["🗓️", "勤怠へ（mine.md）"],
-                    knowledge: ["📚", "ナレッジへ（Coordinator への変更依頼）"], keep: ["📝", "メモとして保管"] };
+                    knowledge: ["📚", "ナレッジへ（Coordinator への変更依頼）"], reminder: ["⏰", "リマインドへ"], keep: ["📝", "メモとして保管"] };
 const MEMO_LEGEND = Object.values(MEMO_ICON).map(([i]) => i).join(" ");
 const MEMO_LEGEND_TITLE = Object.values(MEMO_ICON).map(([i, l]) => `${i} ${l}`).join("\n");
 function memoCurator(o) {
@@ -674,27 +796,43 @@ document.addEventListener("keydown", ev => {
 
 // ---------- notification feed ----------
 const N_ICON = { created: "🆕", append: "✏️", close: "✅", unclear: "❓", dup: "🗑️", unassigned: "👤",
-                 attention: "⚠️", escalated: "🚨", log: "📄", action: "📌", overtime: "🕕" };
+                 attention: "⚠️", escalated: "🚨", log: "📄", action: "📌", overtime: "🕕", reminder: "⏰", devreq: "📋",
+                 overdue: "⏳", duetoday: "📅", draft: "✉️", memo: "📝", agent_error: "❌", wbs: "🧩", notice: "🔔", lunch: "🍙", script: "🛠", break: "☕", evening: "🌙", night: "🌃", meeting: "🎙" };
 const N_LABEL = { created: "起票", append: "追記", close: "Close 候補", unclear: "判別不能で Drop", dup: "重複 Drop",
-                  unassigned: "未割当", attention: "要確認", escalated: "エスカレ", log: "ログ", action: "要対応", overtime: "残業申請" };
+                  unassigned: "未割当", attention: "要確認", escalated: "エスカレ", log: "ログ", action: "要対応", overtime: "残業申請",
+                  reminder: "リマインド", devreq: "要相談の要望", overdue: "期限切れ", duetoday: "今日が期日", draft: "下書き",
+                  memo: "メモの振り分け", agent_error: "実行失敗", wbs: "WBS", notice: "確認済みの通知", lunch: "お昼のおしらせ", script: "運用スクリプト", break: "休憩", evening: "終業前", night: "夜", meeting: "AI 議事メモ" };
+const N_TABBTN = { evening: "タスクを開く", lunch: "要望を見る", script: "ルーティンを開く", overdue: "タスクを開く", duetoday: "タスクを開く", draft: "下書きを開く", memo: "メモを開く", agent_error: "ログを開く", wbs: "WBS を開く" };
 function notifHtml(r) {
   if (!r.items.length) return `<div class="empty">${r.total ? "すべて確認済みです 🎉" : "通知はありません"}</div>`;
   let group = "", out = "";
   for (const it of r.items) {
     if (it.group !== group) { group = it.group; out += `<div class="ngroup">${esc(group)}</div>`; }
     const open = state.notifOpen.has(it.id);
-    out += `<div class="nrow ${it.acked ? "acked" : ""}" data-nid="${it.id}" title="${esc(N_LABEL[it.kind] || it.kind)}">
+    out += `<div class="nrow ${it.acked ? "acked" : ""} ${it.hot && !it.acked ? "hot" : ""}" data-nid="${it.id}" title="${esc(N_LABEL[it.kind] || it.kind)}">
       <span class="ic">${N_ICON[it.kind] || "•"}</span><span class="tt">${esc(it.title)}</span>
       ${it.acked ? "" : `<button class="ok" data-ack="${it.id}" title="確認した（一覧から消す）">OK</button>`}</div>`;
     if (open) {
-      const extra = it.extra.length ? `<ul>${it.extra.map(x => `<li>${esc(x.title)}${x.detail ? ` <span class="muted">→ ${esc(x.detail)}</span>` : ""}
+      const extra = it.extra.length && it.kind !== "reminder" ? `<ul>${it.extra.map(x => `<li>${esc(x.title)}${x.detail ? ` <span class="muted">→ ${esc(x.detail)}</span>` : ""}
         ${x.link ? ` <a href="${esc(x.link)}" target="_blank" rel="noopener noreferrer">↗</a>` : ""}</li>`).join("")}</ul>` : "";
-      const body = it.kind === "log" ? `<div class="md">${renderMarkdown(it.detail)}</div>` : (it.detail ? `<div>${esc(it.detail)}</div>` : "");
-      out += `<div class="ndetail"><div class="muted">${esc(N_LABEL[it.kind] || it.kind)}${it.when ? "・" + esc(it.when.replace("T", " ")) : ""}</div>${body}${extra}
-        ${it.link ? `<a class="btn" href="${esc(it.link)}" target="_blank" rel="noopener noreferrer">Planner で開く ↗</a>` : ""}
+      const [head, ...rest] = (it.detail || "").split(/\n/);
+      const body = it.kind === "log" ? `<details><summary>${esc(reportGist(it.detail) || "ログ")}</summary><div class="md">${renderMarkdown(it.detail)}</div></details>`
+        : it.detail ? (rest.join("").trim() || head.length > 140
+          ? `<div>${esc(head.slice(0, 140))}${head.length > 140 ? "…" : ""}</div><details><summary class="cal-legend" style="margin:0">続きを読む</summary><div style="white-space:pre-wrap">${esc(it.detail)}</div></details>`
+          : `<div>${esc(head)}</div>`) : "";
+      const draft = it.draft ? `<div class="muted" style="margin-top:6px">送る文面の案（このまま貼れます）</div>
+        <pre style="white-space:pre-wrap;margin:4px 0;padding:8px;border:1px solid var(--line);border-radius:8px;font-size:12.5px">${esc(it.draft)}</pre>
+        <button class="btn primary" data-copydraft="${it.id}">📋 文面をコピー</button>${fbBox("リマインド文面: " + it.title)}` : "";
+      out += `<div class="ndetail"><div class="muted">${esc(N_LABEL[it.kind] || it.kind)}${it.when ? "・" + esc(it.when.replace("T", " ")) : ""}</div>${body}${extra}${draft}
+        ${it.link ? `<a class="btn" href="${esc(it.link)}" target="_blank" rel="noopener noreferrer">${/planner|tasks\.office/.test(it.link) ? "Planner で開く" : /^obsidian:/.test(it.link) ? "元ノートを開く" : "リンクを開く"} ↗</a>` : ""}
         ${it.path ? `<a class="btn" href="#${esc(it.tab)}" data-openitem="${esc(it.path)}">詳細を開く</a>` : ""}
         ${it.kind === "overtime" ? '<a class="btn" href="#overtime" data-tab="overtime">残業を記録する</a>' : ""}
-        <button class="btn" data-assist="notice" data-nid2="${it.id}">🤖 相談</button></div>`;
+        ${it.kind === "reminder" ? `<button class="btn primary" data-remdone="${esc((it.extra[0] || {}).detail || "")}">✓ 済んだ</button>` : ""}
+        ${it.kind === "devreq" ? '<a class="btn" href="#devreq" data-tab="devreq">要望を開く</a>' : ""}
+        ${N_TABBTN[it.kind] && it.tab && !it.path ? `<a class="btn" href="#${esc(it.tab)}" data-tab="${esc(it.tab)}">${N_TABBTN[it.kind]}</a>` : ""}
+        <button class="btn" data-assist="notice" data-nid2="${it.id}">🤖 相談</button>
+        <div class="row" style="margin-top:6px"><input class="react-text" placeholder="リアクション（例: 次からはこうして）→ エージェントが次のバッチで反映" style="flex:1;min-width:160px">
+          <button class="btn" data-react="${it.id}">💬 送る</button></div></div>`;
     }
   }
   if (!r.has_task_url && r.items.some(i => ["created", "append", "close", "unassigned"].includes(i.kind)))
@@ -709,8 +847,24 @@ async function loadNotifications() {
     state.cache.escbox = html;
     const el = document.getElementById("escbox"); if (el && el.dataset.last !== html) { el.innerHTML = html; el.dataset.last = html; }
     const c = document.getElementById("esccount"); if (c) c.textContent = r.unacked ? `未確認 ${r.unacked}` : "";
+    state.cache.eschist = `今日 ${r.handled_today}・7 日 ${r.handled_week}`;
+    const hc = document.getElementById("esc-histcount"); if (hc) hc.textContent = state.cache.eschist;
+    if (document.getElementById("esc-hist")?.open) loadHandled();
   } catch (e) { const el = document.getElementById("escbox"); if (el) el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
 }
+
+// where things went after they left the feed (OK / ✓ 済んだ / done)
+async function loadHandled() {
+  const el = document.getElementById("eschist"); if (!el) return;
+  try {
+    const r = await api("/api/notifications/handled");
+    const html = r.rows.map(x => `<div class="nrow acked" title="${esc(x.where)}"><span class="ic">${(DONE_SRC[x.source] || ["🔔"])[0]}</span>
+        <span class="when" style="min-width:76px">${esc((x.when || "").replace("T", " ").slice(5, 16))}</span>
+        <span class="tt">${esc(x.title)} <span class="muted">→ ${esc(x.where.split("（")[0])}</span></span></div>`).join("") || '<div class="empty">まだありません</div>';
+    if (el.dataset.last !== html) { el.innerHTML = html; el.dataset.last = html; }
+  } catch (e) { el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+document.addEventListener("toggle", ev => { if (ev.target.id === "esc-hist" && ev.target.open) loadHandled(); }, true);
 
 function renderHome() {
   const o = state.overview; if (!o) return;
@@ -733,22 +887,33 @@ function renderHome() {
       ${tile("要対応（open）", o.counts.action_items_open, "action_items")}
       ${tile("新着メール", o.counts.inbox_new, "inbox")}
       ${tile("未処理の変更依頼", o.counts.requests_open, "requests")}
-      ${tile("本日のコスト", usd(o.spent), "home", `<div class="meter"><div style="width:${pct}%"></div></div>`)}
+      ${o.checks ? `${tile("期限切れのタスク", o.checks.overdue ? `<span style="color:var(--bad)">${o.checks.overdue}</span>` : 0, "tasks")}
+      ${tile("今日が期日", o.checks.duetoday, "tasks")}
+      ${tile("🔁 今月のルーティン残", o.checks.routine_left, "routine")}
+      ${tile("WBS の転記待ち", o.checks.wbs_pending, "wbs")}
+      ${tile("🛠 システム改善要望（Nakama）", o.checks.devreq_open, "devreq")}` : ""}
     </div>
+    <div class="card" id="briefcard"><details ${store.get("briefOpen") === "1" ? "open" : ""} id="brief-details"><summary><strong>☀️ 今日のブリーフ</strong>
+      <span class="cal-legend" id="brief-date" style="display:inline;margin-left:8px"></span>
+      <button class="btn right" id="brief-run" title="Asa に今すぐ作らせる（平日 8:30 に自動）">今すぐ作る</button></summary>
+      <div class="md" id="brief-body">${state.cache.brief || '<div class="empty">読み込み中…</div>'}</div></details></div>
     <div class="dash">
       <div class="card sq" style="grid-area:agents"><h2>エージェント <span class="right"><button class="btn" id="run-all" title="有効なエージェントを順に実行（入力が無いもの・祝日のものは通常どおりスキップ。Kihyo は除く）">▶ 全部</button>
         <button class="btn" id="agents-toggle">${state.agentsOpen ? "詳細を隠す" : "詳細を表示"}</button></span></h2>
         ${state.agentsOpen ? `<div class="tablewrap"><table>
         <tr><th>名前</th><th>モデル</th><th>スケジュール (cron)</th><th>状態</th><th>最終成功</th><th>本日</th><th></th></tr>
         ${rows}</table></div>` : flowSvg(o)}</div>
-      <div class="card sq" style="grid-area:tasks"><h2>自分のタスク（未完了・期日順） <button class="btn right" data-tab="tasks">すべて</button></h2>
+      <div class="card tasksq" style="grid-area:tasks"><h2>自分のタスク（未完了・期日順） <button class="btn right" data-tab="tasks">すべて</button></h2>
         <div id="taskmini">${state.cache.taskmini || '<div class="empty">読み込み中…</div>'}</div></div>
       <div class="rightcol">
       <div class="card esc"><div class="nhead"><h2 style="margin:0">エスカレ</h2><span class="pill open" id="esccount"></span>
-        <span style="margin-left:auto"></span><button class="btn" data-assist="overall" title="通知・タスク・勤怠から総合的にアシスト（返答案・クローズ案・休暇の提案）">🤖</button>
+        <span style="margin-left:auto"></span><button class="btn" id="rem-add" title="日付つきのリマインドを追加">＋⏰</button><button class="btn" data-assist="overall" title="通知・タスク・勤怠から総合的にアシスト（返答案・クローズ案・休暇の提案）">🤖</button>
         <button class="btn" id="ack-all" title="表示中をすべて確認済みにする">すべて OK</button></div>
         <label class="cal-legend" style="margin:0 0 6px;cursor:pointer"><input type="checkbox" id="notif-acked" ${state.notifAcked ? "checked" : ""}> 確認済みも表示</label>
-        <div id="escbox">${state.cache.escbox || '<div class="empty">読み込み中…</div>'}</div></div>
+        <div id="escbox">${state.cache.escbox || '<div class="empty">読み込み中…</div>'}</div>
+        <details id="esc-hist" style="margin-top:6px"><summary class="cal-legend" style="margin:0;cursor:pointer">✓ 片付けたもの <span id="esc-histcount">${state.cache.eschist || ""}</span></summary>
+          <div id="eschist"><div class="empty">読み込み中…</div></div>
+          <a href="#completed" data-tab="completed" class="cal-legend">すべて見る（タスク > 完了済み）</a></details></div>
       <div class="card"><h2>メモ</h2>
         <div class="cal-legend" style="margin:0 0 6px">${memoCurator(o)}</div>
         <textarea id="memo-text" placeholder="口頭で聞いたことなど（Ctrl+Enter で保存）"></textarea>
@@ -764,6 +929,12 @@ function renderHome() {
   fillCalendar("calstrip", calendarStrip);
   loadNotifications();
   loadMemos();
+  api("/api/brief").then(b => {
+    const html = b.content ? renderMarkdown(b.content) : '<div class="empty">まだありません（平日 8:30 に Asa が作成。「今すぐ作る」でも可）</div>';
+    state.cache.brief = html;
+    const el = document.getElementById("brief-body"); if (el && el.dataset.last !== html) { el.innerHTML = html; el.dataset.last = html; }
+    const d = document.getElementById("brief-date"); if (d) d.textContent = b.date ? `${b.date} 作成` : "";
+  }).catch(() => {});
   api("/api/schedule").then(sc => {
     const html = scheduleHtml(sc); state.cache.sched = html;
     const el = document.getElementById("sched"); if (el && el.dataset.last !== html) { el.innerHTML = html; el.dataset.last = html; }
@@ -776,17 +947,27 @@ function renderHome() {
   }).catch(() => {});
   api("/api/list?kind=reports&" + sq()).then(async items => {
     // Build the whole block first, then swap it in once (no empty -> filled flash).
-    const parts = await Promise.all(items.slice(0, 3).map(async r => {
-      let body;
-      try { body = renderMarkdown((await api("/api/file?path=" + encodeURIComponent(r.path))).content); }
+    const parts = await Promise.all(items.slice(0, 6).map(async r => {
+      let body, gist = "";
+      try { const txt = (await api("/api/file?path=" + encodeURIComponent(r.path))).content;
+            body = renderMarkdown(txt); gist = reportGist(txt); }
       catch (e) { body = esc(e.message); }
-      return `<div class="item" style="margin-bottom:12px"><div class="fm">${esc(r.name)}</div><div>${body}</div></div>`;
+      return `<details class="rep" style="margin-bottom:6px"><summary><strong>${esc(r.title || r.name)}</strong>
+          <span class="muted" style="font-size:12px">${esc(fmtTime(r.mtime))}</span>${gist ? `<div class="cal-legend" style="margin:2px 0 0">${esc(gist)}</div>` : ""}</summary>
+        <div style="padding:6px 0 0 14px">${body}</div></details>`;
     }));
     const html = parts.length ? parts.join("") : '<div class="empty">まだレポートはありません。上の「今すぐ実行」で試せます。</div>';
     const el = document.getElementById("recent");
     if (el) el.innerHTML = html;
     state.cache.recent = html;
   }).catch(e => toast(e.message));
+}
+
+// One line that says what happened (consultant-style: the conclusion first); the rest stays folded.
+function reportGist(md) {
+  const lines = md.replace(/^---[\s\S]*?---\s*/, "").split(/\r?\n/).map(l => l.replace(/^[#>*\-\s]+/, "").trim()).filter(Boolean);
+  const pick = lines.find(l => /^[⚠✅❌🚨]|結論|要約|件|完了|スキップ|失敗/.test(l)) || lines[1] || lines[0] || "";
+  return pick.replace(/\*\*|`/g, "").slice(0, 120);
 }
 
 async function renderKind(tab) {
@@ -857,7 +1038,7 @@ async function openFile(path) {
     viewer.innerHTML = `
       <div class="toolbar"><span class="path">${esc(path)}</span>${copyBtn}${assistBtn}${statusBtns}</div>
       ${fm ? `<div class="fm">${esc(fm)}</div>` : ""}
-      <div class="md">${renderMarkdown(body)}</div>`;
+      <div class="md">${renderMarkdown(body)}</div>${path.includes("/drafts/") ? fbBox("メール下書き: " + path.split("/").pop()) : ""}`;
     viewer.dataset.path = path;
     viewer.dataset.raw = f.content;
   } catch (e) {
@@ -879,16 +1060,80 @@ async function renderGuide() {
   const main = document.getElementById("main");
   main.innerHTML = '<div class="viewer md" id="guide"><div class="empty">読み込み中…</div></div>';
   try {
-    const { content } = await api("/api/guide");
+    const { content, references = [] } = await api("/api/guide");
+    // q128: reference PDFs (references/) with an embedded preview on top of the guide
+    const refs = references.length ? `<div class="card" style="margin:0 0 16px"><h2>📄 Reference（${references.length}）</h2>
+      ${references.map((r, i) => `<div class="row" style="margin:4px 0"><button class="btn" data-refpdf="${esc(r.name)}">${i === 0 ? "▼" : "▶"} ${esc(r.name)}</button>
+        <span class="cal-legend" style="margin:0">${(r.size / 1048576).toFixed(1)} MB</span></div>`).join("")}
+      <div id="ref-view" style="margin-top:8px"></div></div>` : "";
     // Allow http(s) links in the guide only; everything else stays escaped text.
-    document.getElementById("guide").innerHTML = renderMarkdown(content)
+    document.getElementById("guide").innerHTML = refs + renderMarkdown(content)
       .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    if (references.length) showReference(references[0].name);
   } catch (e) { document.getElementById("guide").innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
 }
+// Personal: always shown; lists the personal tabs that are enabled, otherwise explains how to add one.
+function renderPersonal() {
+  const o = state.overview || {}, f = o.features || {};
+  const on = TABS.filter(t => t.feature && f[t.feature]);
+  document.getElementById("main").innerHTML = `<div class="card"><h2>Personal</h2>
+    <div class="md">個人ごとに好きな機能を持たせる場所です。config/fleet.yaml で機能を有効にすると、このグループにタブが増えます。</div>
+    ${on.length ? `<div class="row" style="margin-top:10px">${on.map(t => `<button class="btn" data-tab="${t.id}">${esc(t.label)}</button>`).join("")}</div>`
+      : '<div class="empty" style="text-align:left">まだ何も有効になっていません（使い方タブの「Personal」を参照）。</div>'}</div>`;
+}
+
+// Inline sub-task entry right under the clicked task row (memo feel: no dialog).
+// Enter = add, Esc / empty blur = close.
+function openChildInput(tr, row) {
+  if (!tr) return;
+  document.querySelectorAll("tr.child-input").forEach(x => x.remove());
+  const cols = tr.children.length, pad = ((row.depth || 0) * 14) + 28;
+  const holder = document.createElement("tr");
+  holder.className = "child-input";
+  holder.innerHTML = `<td colspan="${cols}" style="padding:4px 8px 6px ${pad}px">
+    <span class="muted">└ </span><input placeholder="サブタスク（Enter で追加・Esc で閉じる）" style="width:min(520px,80%)"></td>`;
+  tr.after(holder);
+  const inp = holder.querySelector("input");
+  holder.addEventListener("click", e => e.stopPropagation());  // don't open the task detail
+  const close = () => holder.remove();
+  inp.addEventListener("keydown", async e => {
+    if (e.key === "Escape") { close(); return; }
+    if (e.key !== "Enter" || e.isComposing) return;   // isComposing: ignore Enter that confirms IME input
+    e.preventDefault();
+    const text = inp.value.trim(); if (!text) { close(); return; }
+    inp.disabled = true;
+    try {
+      await api("/api/note/addchild", { line: row.line, raw: row.raw, text });  // lands after the parent's last child
+      toast("サブタスクを追加しました"); refreshAfterTaskChange();
+    } catch (err) { toast(err.message); inp.disabled = false; inp.focus(); }
+  });
+  inp.addEventListener("blur", () => { if (!inp.value.trim() && !inp.disabled) setTimeout(close, 150); });
+  inp.focus();
+}
+
+// The API needs the token header, so fetch the PDF ourselves and hand the browser a blob URL.
+async function showReference(name) {
+  const box = document.getElementById("ref-view"); if (!box) return;
+  box.innerHTML = '<div class="empty">読み込み中…</div>';
+  try {
+    const res = await fetch("/api/reference?name=" + encodeURIComponent(name), { headers: { "X-Nakama-Token": TOKEN } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (state.refUrl) URL.revokeObjectURL(state.refUrl);
+    state.refUrl = URL.createObjectURL(new Blob([await res.arrayBuffer()], { type: "application/pdf" }));  // plain type so the viewer kicks in
+    box.innerHTML = `<iframe src="${state.refUrl}" title="${esc(name)}" style="width:100%;height:75vh;border:1px solid var(--line);border-radius:10px"></iframe>
+      <a href="${state.refUrl}" target="_blank" rel="noopener" class="cal-legend">↗ 別タブで開く</a>`;
+  } catch (e) { box.innerHTML = `<div class="empty">PDF を開けませんでした: ${esc(e.message)}</div>`; }
+}
+document.addEventListener("click", ev => {
+  const b = ev.target.closest("[data-refpdf]"); if (!b) return;
+  document.querySelectorAll("[data-refpdf]").forEach(x => { x.textContent = x.textContent.replace(/^▼/, "▶"); });
+  b.textContent = b.textContent.replace(/^▶/, "▼");
+  showReference(b.dataset.refpdf);
+});
 
 const R_STATUS = { todo: ["未着手", "open"], doing: ["作業中", "running"], review: ["レビュー中", "waiting"], pending: ["保留", "waiting"],
                    done: ["完了", "done"], skip: ["今月なし", "off"] };
-const SRC_ICON = { planner: ["🗂", "Planner（起票履歴）"], routine: ["🔁", "ルーティン"] };
+const SRC_ICON = { planner: ["🗂", "Planner（起票履歴）"], routine: ["🔁", "ルーティン"], note: ["📓", "手書きノート"], wbs: ["🧩", "WBS（Excel）"] };
 function unifiedTable(d, compact = false) {
   if (!d.tasks.length) return `<div class="empty">${d.current === false ? "この月の未完了タスクはありません" : "未完了のタスクはありません 🎉（すべて対応済み）"}</div>`;
   const today = d.today;
@@ -899,18 +1144,21 @@ function unifiedTable(d, compact = false) {
       const [icon, src] = SRC_ICON[r.source] || ["•", r.source];
       const [label, cls] = r.source === "planner" ? (STATUS_JA[r.status] || [r.status, ""]) : (R_STATUS[r.status] || [r.status === "open" ? "未完了" : r.status, r.status === "open" ? "open" : ""]);
       const done = DONE_STATUS.has(r.status);
+      const canDone = r.source === "routine" || r.source === "note";
       const overdue = r.due && r.due < today && !done;
       const name = r.link ? `<a href="${esc(r.link)}" target="_blank" rel="noopener noreferrer">${esc(r.title)} ↗</a>`
         : r.source === "routine" ? `<a href="#routine" data-goroutine="${esc(r.id)}" data-gomonth="${esc(r.month)}">${esc(r.title)} →</a>`
-        : r.source === "note" ? `<a href="#note" data-gonote="${r.line}">${r.star ? "★" : ""}${esc(r.title)}</a>` : esc(r.title);
+        : r.source === "note" ? `${r.depth ? `<span class="muted" style="display:inline-block;padding-left:${(r.depth - 1) * 14}px">└ </span>` : ""}<a href="#note" data-gonote="${r.line}">${esc(r.title)}</a>
+            <button class="ok-btn" data-notechild="${i}" title="この下にサブタスクを追加（ノートにインデントして書き込み）" style="border:0;padding:0 3px;opacity:.6">＋</button>`
+        : r.source === "wbs" ? `<a href="#wbs" data-gowbs="${esc(r.wbs_file)}" data-wbsrow="${r.wbs_row}">${esc(r.title)} →</a>` : esc(r.title);
       const bd = r.source === "routine" ? `${esc(r.window)}${r.bd ? `（期日 ${r.bd}営）` : ""}` : (r.bd ? `${r.bd}営` : r.source === "note" ? esc(r.section || "") : "");
-      const canDone = r.source !== "planner";
+      const rel = (r.related || []).map(w => ` <a href="#wbs" data-gowbs="${esc(w.id)}" data-wbsrow="0" title="関連する WBS: ${esc(w.name)}">🧩</a>`).join("");
       return `<tr class="${r.star ? "star" : ""}" data-note="${esc(r.key)}" data-notetitle="${esc(r.title)}" title="${esc(src)}${r.memo ? " / " + esc(r.memo) : ""}" style="cursor:pointer">
-        <td class="src">${icon}</td><td>${pill(label, cls)}</td><td>${name}${compact && r.notes ? ` <span class="muted">📝${r.notes}</span>` : ""}</td>
-        <td class="due" style="${overdue ? "color:var(--bad);font-weight:600" : ""}">${esc(md(r.due))}${overdue ? " ⚠" : ""}${compact && r.bd ? `<span class="muted"> ${r.bd}営</span>` : ""}</td>
+        <td class="src"><button class="ok-btn" data-taskstar="${i}" title="${r.star ? "★ を外す" : "★ で一番上に"}" style="border:0;padding:0 2px">${r.star ? "★" : "☆"}</button>${icon}</td>
+        <td>${pill(label, cls)}</td><td>${name}${rel}${compact && r.notes ? ` <span class="muted">📝${r.notes}</span>` : ""}</td>
+        <td class="due pick" data-duecell="${i}" title="${r.source === "planner" ? "押すと期日を変更（Nakama 上のみ。Planner 側も直すこと！）" : r.source === "wbs" ? "押すと終了予定を変更（WBS タブの転記で Excel へ）" : "押すとカレンダーで期日を変更"}" style="${overdue ? "color:var(--bad);font-weight:600" : ""}">${esc(md(r.due))}${overdue ? " ⚠" : ""}${r.planner_due !== undefined && r.planner_due !== r.due ? `<span title="Planner 上は ${esc(r.planner_due || "期日なし")}。Planner 側も直すこと！" style="color:var(--warn,#b7791f)"> ✎</span>` : ""}${compact && r.bd ? `<span class="muted"> ${r.bd}営</span>` : ""}</td>
         ${compact ? "" : `<td>${bd}</td><td>${r.notes ? "📝 " + r.notes : ""}</td>
         <td style="white-space:nowrap">${canDone ? `<button class="ok-btn" data-taskdone="${i}" data-done="${done ? "0" : "1"}" title="${done ? "未完了に戻す" : "完了にする"}">${done ? "↩" : "✓"}</button>` : ""}
-          ${canDone ? `<button class="ok-btn" data-taskdue="${i}" title="期日を変える（ノートは 📅 YYYY-MM-DD を書き込み）">📅</button>` : ""}
           <button class="ok-btn" data-assist="task" data-row="${i}" title="Claude に相談（返答案・クローズ案）">🤖</button></td>`}</tr>`;
     }).join("") + "</table></div>";
 }
@@ -959,17 +1207,43 @@ async function renderTasks() {
       <button class="btn primary" id="nt-add">追加</button>
       <button class="btn" data-assist="overall" title="タスク・通知・勤怠を見て総合的にアシスト">🤖 総合アシスト</button></div>
     <div id="tasklist">${state.cache.tasklist || '<div class="empty">読み込み中…（同期フォルダを読むので初回は数秒かかります）</div>'}</div>
+    <div class="card" id="notebox" style="margin-top:12px"><div class="cal-legend">行を押すと、そのタスクの作業メモを見る・追加できます</div></div>
     <div class="src-list" id="tasksrc"></div></div>`;
+  await refreshTaskList();
+  showSources("tasksrc", "tasks");
+}
+
+// Re-read the task list and swap only the table, keeping the page/table scroll position.
+async function refreshTaskList() {
+  const month = state.tmonth || (state.overview ? state.overview.now.slice(0, 7) : "");
+  const wrapBefore = document.querySelector("#tasklist .tablewrap");
+  const keep = { page: window.scrollY || 0, table: wrapBefore ? wrapBefore.scrollTop : 0 };
   try {
     const r = await api("/api/tasks/all?month=" + encodeURIComponent(month) + (state.tasksDone ? "&done=1" : ""));
     state.tmonth = r.month;
     const head = `<div class="cal-legend" style="margin:0 0 8px">今日 ${esc(r.today)}・${r.bd ? r.bd + " 営業日目" : (r.holiday ? "祝日 " + esc(r.holiday) : "休日")}（今月 ${r.bd_total} 営業日）｜🗂 Planner　🔁 ルーティン　📓 ノート｜✓ で完了（ノートは □→■）・🤖 で相談</div>`;
-    const html = head + (r.error ? `<div class="attn" style="background:var(--partial)">${esc(r.error)}</div>` : "") + unifiedTable(r) +
-      '<div class="card" id="notebox" style="margin-top:12px"><div class="cal-legend">行を押すと、そのタスクの作業メモを見る・追加できます</div></div>';
+    const html = head + (r.error ? `<div class="attn" style="background:var(--partial)">${esc(r.error)}</div>` : "") + unifiedTable(r);
     state.cache.tasklist = html;
     const el = document.getElementById("tasklist"); if (el) el.innerHTML = html;
-    showSources("tasksrc", "tasks");
-  } catch (e) { document.getElementById("tasklist").innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+    const wrap = document.querySelector("#tasklist .tablewrap");
+    if (wrap) wrap.scrollTop = keep.table;
+    if (window.scrollTo) window.scrollTo(0, keep.page);
+  } catch (e) { const el = document.getElementById("tasklist"); if (el) el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+
+// After a task edit: refresh just the list that is on screen (tasks tab or the dashboard square).
+async function refreshAfterTaskChange() {
+  state.cache.tasklist = ""; state.cache.taskmini = "";
+  if (state.tab === "tasks") return refreshTaskList();
+  if (state.tab === "home") {
+    try {
+      const r = await api("/api/tasks/all");
+      const html = `<div class="cal-legend" style="margin:0 0 4px">今日は ${r.bd ? r.bd + " 営業日目" : (r.holiday ? "祝日（" + esc(r.holiday) + "）" : "休日")}／${r.bd_total}・🗂 Planner 🔁 ルーティン</div>` +
+        unifiedTable({ ...r, tasks: r.tasks.slice(0, 12) }, true);
+      state.cache.taskmini = html;
+      const el = document.getElementById("taskmini"); if (el) { el.innerHTML = html; el.dataset.last = html; }
+    } catch (e) { toast(e.message); }
+  }
 }
 
 // ---------- requests to Nakama itself ----------
@@ -989,24 +1263,25 @@ async function renderDevreq() {
     main.innerHTML = tiles + `<div class="card"><h2>リリースノート（${items.length} 件） <span class="right">${viewBtn}</span></h2>
       ${items.map(x => `<div style="border-bottom:1px solid var(--line);padding:10px 0">
         <div><strong>${esc(x.id)} ${esc(x.text)}</strong> ${pill(DQ[x.status][0], DQ[x.status][1])}</div>
-        <div class="md" style="margin-top:4px"><p><strong>変更内容:</strong> ${esc(x.change || "—")}</p><p><strong>使い方:</strong> ${esc(x.usage || "—")}</p></div></div>`).join("")}</div>`;
+        <div class="md" style="margin-top:4px">${x.instruction ? `<p><strong>あなたの指示:</strong> ${esc(x.instruction)}</p>` : ""}<p><strong>変更内容:</strong> ${esc(x.change || "—")}</p><p><strong>使い方:</strong> ${esc(x.usage || "—")}</p></div></div>`).join("")}</div>`;
     return;
   }
   const rows = r.requests.filter(x => state.showDone || x.status !== "done").sort((a, b) => order[a.status] - order[b.status] || a.id.localeCompare(b.id));
   main.innerHTML = tiles + `<div class="card"><h2>要望・対応状況 <span class="right" style="font-weight:400;font-size:12px">${viewBtn}
       <label style="cursor:pointer;margin-left:8px"><input type="checkbox" id="show-done" ${state.showDone ? "checked" : ""}> 完了も表示</label></span></h2>
       <div class="row" style="margin-bottom:8px"><input id="dq-text" placeholder="新しい要望" style="flex:1;min-width:200px"><button class="btn primary" id="dq-add">追加（オープン）</button></div>
-      <div class="tablewrap"><table><tr><th>#</th><th>状態</th><th>要望（押すと変更内容・使い方）</th><th>メモ</th></tr>${rows.map(x => `<tr data-dqrow="${esc(x.id)}" style="cursor:pointer;background:${DQ_BG[x.status] || ""}">
+      <div class="tablewrap"><table><tr><th>#</th><th>状態</th><th>要望（押すと変更内容・使い方）</th><th>あなたの指示</th><th>メモ（Claude）</th></tr>${rows.map(x => `<tr data-dqrow="${esc(x.id)}" style="cursor:pointer;background:${DQ_BG[x.status] || ""}">
         <td class="muted">${esc(x.id)}</td>
         <td><select data-dq="${esc(x.id)}">${r.statuses.map(s => `<option value="${s}" ${s === x.status ? "selected" : ""}>${DQ[s][0]}</option>`).join("")}</select></td>
-        <td>${esc(x.text)}</td><td class="muted">${esc(x.note)}</td></tr>
-        ${state.dqOpen === x.id ? `<tr data-attach><td></td><td colspan="3"><div class="card" style="margin:4px 0">
-          <div class="cal-legend" style="margin:0 0 2px">変更内容（どう修正したか）</div><textarea id="dq-change" style="min-height:70px">${esc(x.change || "")}</textarea>
+        <td>${esc(x.text)}</td><td style="font-weight:600">${esc(x.instruction || "")}</td><td class="muted">${esc(x.note)}</td></tr>
+        ${state.dqOpen === x.id ? `<tr data-attach><td></td><td colspan="4"><div class="card" style="margin:4px 0">
+          <div class="cal-legend" style="margin:0 0 2px;font-weight:600">あなたの指示（Claude はここを最優先で読む）</div><textarea id="dq-instr" style="min-height:50px">${esc(x.instruction || "")}</textarea>
+          <div class="cal-legend" style="margin:6px 0 2px">変更内容（どう修正したか）</div><textarea id="dq-change" style="min-height:70px">${esc(x.change || "")}</textarea>
           <div class="cal-legend" style="margin:6px 0 2px">使い方</div><textarea id="dq-usage" style="min-height:50px">${esc(x.usage || "")}</textarea>
           <div class="cal-legend" style="margin:6px 0 2px">メモ</div><input id="dq-note" value="${esc(x.note || "")}" style="width:100%">
           <div style="margin-top:6px"><button class="btn primary" id="dq-save" data-id="${esc(x.id)}">保存</button>
             <span class="cal-legend">更新 ${esc((x.updated || "").replace("T", " "))}</span></div></div></td></tr>` : ""}`).join("")
-        || '<tr><td colspan="4">未対応の要望はありません 🎉</td></tr>'}</table></div></div>`;
+        || '<tr><td colspan="5">未対応の要望はありません 🎉</td></tr>'}</table></div></div>`;
 }
 document.addEventListener("change", async ev => {
   if (!ev.target.dataset || !ev.target.dataset.dq) return;
@@ -1198,6 +1473,345 @@ async function renderOvertime() {
         || '<tr><td colspan="5">記録なし</td></tr>'}</table></div></div>`;
 }
 
+// ---------- mini calendar for due dates ----------
+// A real <input type=date> placed over the clicked cell; showPicker() opens the browser's calendar.
+function pickDate(cell, value, onPick) {
+  document.querySelectorAll("input.datepick").forEach(x => x.remove());
+  const r = cell.getBoundingClientRect();
+  const inp = document.createElement("input");
+  inp.type = "date"; inp.className = "datepick"; inp.value = value || todayIso();
+  Object.assign(inp.style, { position: "fixed", left: r.left + "px", top: r.top + "px", width: Math.max(r.width, 150) + "px",
+                             height: r.height + "px", zIndex: 50, opacity: "0.01" });
+  document.body.appendChild(inp);
+  const done = () => setTimeout(() => inp.remove(), 0);
+  inp.addEventListener("change", () => { if (inp.value) onPick(inp.value); done(); });
+  inp.addEventListener("blur", done);
+  inp.focus();
+  try { inp.showPicker(); } catch { inp.style.opacity = "1"; }  // older browsers: show the field itself
+}
+async function changeDue(row, due) {
+  try {
+    const r = await api("/api/tasks/due", { source: row.source, id: row.id, month: row.month, line: row.line, raw: row.raw, due, key: row.key,
+                                            wbs_file: row.wbs_file, wbs_sheet: row.wbs_sheet, wbs_row: row.wbs_row, wbs_no: row.wbs_no });
+    toast(row.source === "note" ? `ノートに 📅 ${due} を書き込みました` : r.note || `期日を ${due} にしました`);
+    refreshAfterTaskChange();
+  } catch (e) { toast(e.message); }
+}
+
+// ---------- meeting decks (Tensaku) ----------
+async function renderDecks() {
+  const main = document.getElementById("main");
+  let r;
+  try { r = await api("/api/decks"); } catch (e) { main.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  main.innerHTML = (r.meetings.length ? r.meetings.map(m => `<div class="card"><h2>📑 ${esc(m.name)}
+      <span class="right"><button class="btn" data-deckjob="learn" data-meeting="${esc(m.name)}" ${r.running ? "disabled" : ""}>トーンを学習</button>
+      <button class="btn primary" data-deckjob="review" data-meeting="${esc(m.name)}" ${r.running ? "disabled" : ""}>最新を添削</button>
+      <button class="btn" data-decktpl="${esc(m.name)}">テンプレを保管</button></span></h2>
+      <div class="cal-legend" style="margin:0">${m.error ? esc(m.error) : `資料 ${m.count} 件・最新 ${esc(m.latest)}（${esc(m.latest_at)}）`}</div>
+      <div class="cal-legend">テンプレ: ${m.templates.length ? m.templates.map(esc).join(" / ") : "未保管"}・スタイルガイド: ${m.style ? `<a href="#knowledge" data-tab="knowledge">${esc(m.style)}</a>` : "未学習"}</div>
+      <div class="row" style="margin-top:6px"><input id="deck-path-${esc(m.slug)}" placeholder="添削する pptx のパス（空欄なら最新）" style="flex:1">
+        <button class="btn" data-deckjob="review" data-meeting="${esc(m.name)}" data-pathfrom="deck-path-${esc(m.slug)}" ${r.running ? "disabled" : ""}>このファイルを添削</button></div>
+      <div class="src-list">出典: ${esc(m.folder)}</div></div>`).join("")
+    : '<div class="card"><div class="empty">fleet.yaml の decks.meetings に定例のフォルダを登録してください</div></div>') +
+    `<div class="card"><h2>添削の結果 ${r.running ? pill("Tensaku 実行中", "running") : ""}</h2>${r.reviews.map(x => `<div class="item" data-path="${esc(x.path)}" data-deckreview="1">
+      <div class="t">${esc(x.name)}</div><div class="s">${esc(fmtTime(x.mtime))}</div></div>`).join("") || '<div class="empty">まだありません</div>'}
+      <div class="viewer md" id="deck-viewer" style="margin-top:8px"><div class="empty">結果を選ぶと表示します</div></div></div>`;
+}
+
+// ---------- carry-over agenda ----------
+const AG = { carry: ["次回持ち越し", "open"], open: ["未解決", "waiting"], closed: ["解決", "done"] };
+async function renderAgenda() {
+  const main = document.getElementById("main");
+  let r;
+  try { r = await api("/api/agenda"); } catch (e) { main.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  state.agendaItems = r.items;
+  const meetings = [...new Set([...r.meetings, ...r.items.map(i => i.meeting)])];
+  const rows = r.items.filter(i => state.showDone || i.status !== "closed")
+    .sort((a, b) => (a.status === "carry" ? 0 : a.status === "open" ? 1 : 2) - (b.status === "carry" ? 0 : b.status === "open" ? 1 : 2) || a.raised.localeCompare(b.raised));
+  const next = m => r.items.filter(i => i.meeting === m && i.status !== "closed").length;
+  main.innerHTML = `<div class="tiles">${meetings.map(m => `<div class="tile"><div class="label">${esc(m)} で次回触れる</div><div class="value">${next(m)}</div></div>`).join("")}</div>
+    ${r.suggestions.length ? `<div class="card"><h2>Tensaku の提案（${r.suggestions.length}）</h2>${r.suggestions.map(s => `<div class="row" style="margin:4px 0">
+      <span style="flex:1"><strong>${esc(s.meeting)}</strong>: ${esc(s.topic)} <span class="muted">${esc(s.reason)}（${esc(s.source)}）</span></span>
+      <button class="btn primary" data-agsug="${esc(s.file)}" data-idx="${s.index}" data-accept="1">登録</button>
+      <button class="btn" data-agsug="${esc(s.file)}" data-idx="${s.index}" data-accept="0">不要</button></div>`).join("")}</div>` : ""}
+    <div class="card"><h2>議題を追加</h2><div class="row"><select id="ag-meet">${meetings.map(m => `<option>${esc(m)}</option>`).join("")}</select>
+      <input id="ag-topic" placeholder="議題（未解決のこと）" style="flex:1;min-width:200px"><input id="ag-owner" placeholder="担当" style="width:120px">
+      <input id="ag-next" placeholder="次にやること" style="flex:1;min-width:160px"><button class="btn primary" id="ag-add">追加（次回持ち越し）</button></div></div>
+    <div class="card"><h2>議題 <label class="right" style="font-weight:400;font-size:12px;cursor:pointer"><input type="checkbox" id="show-done" ${state.showDone ? "checked" : ""}> 解決済みも表示</label></h2>
+      <div class="tablewrap"><table><tr><th>状態</th><th>定例</th><th>議題</th><th>担当</th><th>次にやること</th><th>初出</th><th>最後に触れた</th><th></th></tr>
+      ${rows.map(i => `<tr><td>${pill(AG[i.status][0], AG[i.status][1])}</td><td>${esc(i.meeting)}</td>
+        <td title="${esc(i.history.map(h => h.date + " " + h.note).join("\\n"))}">${esc(i.topic)}</td><td>${esc(i.owner)}</td><td>${esc(i.next_action)}</td>
+        <td>${esc(i.raised)}</td><td>${esc(i.last)}</td><td style="white-space:nowrap">
+        <button class="ok-btn" data-agst="carry" data-id="${esc(i.id)}" title="次回の定例で触れる">↪ 次回</button>
+        <button class="ok-btn" data-agst="open" data-id="${esc(i.id)}" title="触れたが未解決">… 未解決</button>
+        <button class="ok-btn" data-agst="closed" data-id="${esc(i.id)}" title="解決">✓ 解決</button></td></tr>`).join("") || '<tr><td colspan="8">次回触れる議題はありません 🎉</td></tr>'}</table></div>
+      <div class="cal-legend">議題にカーソルを当てると経緯。状態を変えるときにひとことメモを残せます（経緯に記録）。</div></div>`;
+}
+
+// ---------- completed items, from every store ----------
+const DONE_SRC = { routine: ["🔁", "ルーティン"], note: ["📓", "ノート"], planner: ["🗂", "Planner"], wbs: ["🧩", "WBS"],
+  action_items: ["📌", "要対応"], requests: ["🛠", "変更依頼"], memos: ["📝", "メモ"], agenda: ["🗣", "持ち越し課題"],
+  reminder: ["⏰", "リマインド"], devreq: ["📋", "要望"], notice: ["🔔", "エスカレで OK"] };
+async function renderCompleted() {
+  const main = document.getElementById("main");
+  let r;
+  try { r = await api("/api/completed"); } catch (e) { main.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  state.doneRows = r.rows;
+  const tiles = Object.entries(r.by_source).map(([k, n]) => `<div class="tile"><div class="label">${(DONE_SRC[k] || ["•", k]).join(" ")}</div><div class="value">${n}</div></div>`).join("");
+  main.innerHTML = `<div class="tiles">${tiles}</div><div class="card"><h2>完了済み（${r.total} 件・新しい順・最大 300 件）</h2>
+    <div class="tablewrap"><table><tr><th></th><th>完了したもの</th><th>日時</th><th>保存場所</th></tr>${r.rows.map((x, i) => `<tr>
+      <td>${(DONE_SRC[x.source] || ["•"])[0]}</td>
+      <td>${x.link ? `<a href="${esc(x.link)}" target="_blank" rel="noopener noreferrer">${esc(x.title)} ↗</a>` : x.tab ? `<a href="#${esc(x.tab)}" data-donego="${i}">${esc(x.title)}</a>` : esc(x.title)}</td>
+      <td class="due">${esc((x.when || "").replace("T", " ").slice(0, 16))}</td><td class="muted" style="font-size:12px">${esc(x.where)}</td></tr>`).join("")}</table></div>
+    <div class="cal-legend">完了の記録は元の場所にそのまま残ります（例: ノートは ■、ルーティンは月ごとの progress、WBS は Excel の状態列）。ここはそれらをまとめて見る窓です。</div></div>`;
+}
+
+// ---------- WBS (Excel) ----------
+const WBS_STATUS = ["未着手", "進行中", "保留", "完了"];
+async function renderWbs() {
+  const main = document.getElementById("main");
+  if (!document.getElementById("wbs-shareopen")) document.getElementById("desc").insertAdjacentHTML("beforeend",
+    ` <a class="btn" id="wbs-shareopen" href="?only=wbs#wbs" target="_blank" rel="noopener" title="共有用: WBS だけを別タブで開く">↗ WBS だけ別タブで開く</a>`);
+  if (!state.holidayList) api("/api/holidays?from=" + (todayIso().slice(0, 4) - 1) + "-01-01").then(h => { state.holidayList = h.holidays; }).catch(() => {});
+  let idx;
+  try { idx = (await api("/api/wbs")).files; } catch (e) { main.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  const list = idx.map(f => `<div class="item" data-wbsopen="${esc(f.id)}" style="${f.is_wbs ? "" : "opacity:.5"}">
+      <div class="t">🧩 ${esc(f.name)}</div><div class="s">${f.is_wbs ? `完了 ${f.done}/${f.total}${f.overdue ? ` ・ <span style="color:var(--bad)">期限切れ ${f.overdue}</span>` : ""}${f.ends ? ` ・ 最終 ${esc(f.ends)}` : ""}`
+        : esc(f.error || "WBS の形式ではありません（WBS 番号とタスクの列が見つからない）")}</div></div>`).join("");
+  const n = idx.filter(f => f.is_wbs).length;
+  const all = n ? `<div class="item" data-wbsopen="__all"><div class="t">🗂 統合（全 WBS）</div>
+      <div class="s">${n} 件の進捗・次にやること・期限切れ・変更履歴をまとめて</div></div>` : "";
+  main.innerHTML = `<div class="split ${store.get("wbsListHidden") === "1" ? "nolist" : ""}" id="wbs-split"><div class="list">${all}${list || '<div class="empty">WBS が見つかりません（Vault と参照フォルダの中で、名前に WBS を含む Excel を探します）</div>'}</div>
+    <div class="viewer" id="wbs-viewer"><div class="empty">左の WBS を選んでください</div></div></div>`;
+  const sel = state.wbsSel || (n > 1 ? "__all" : (idx.find(f => f.is_wbs) || {}).id);
+  if (sel) openWbs(sel);
+}
+// shared toolbar pieces: list toggle + staged (not yet in Excel) edits
+function wbsListToggle() {
+  const hidden = store.get("wbsListHidden") === "1";
+  return `<button class="btn" id="wbs-listtoggle" title="左の一覧を${hidden ? "出す" : "隠す"}">${hidden ? "▶ 一覧" : "◀ 一覧を隠す"}</button>`;
+}
+function wbsPendingBar(pending, sync, fid) {
+  const auto = sync ? `${sync} 分ごとに自動で転記` : "自動転記はオフ（fleet.yaml の wbs.sync_minutes）";
+  if (!pending.length) return `<div class="cal-legend" style="margin:4px 0">✏️ 未転記の変更なし・画面での変更は workspace/wbs/ に保存し、${auto}</div>`;
+  return `<details style="margin:6px 0"><summary><strong>✏️ Excel に未転記 ${pending.length} 件</strong>
+      <button class="btn primary" data-wbsflush="${esc(fid || "")}" style="margin-left:8px">📤 Excel に転記</button>
+      <span class="cal-legend" style="display:inline;margin-left:6px">${auto}・Excel で開いているファイルは閉じるまで待ちます</span></summary>
+    <div class="tablewrap"><table><tr><th>ファイル</th><th>WBS</th><th>項目</th><th>Excel の値</th><th>変更後</th><th>日時</th><th></th></tr>
+    ${pending.map(x => `<tr><td>${esc(x.file_name)}</td><td title="${esc(x.title)}">${esc(x.no)}</td><td>${esc(WBS_LABEL[x.field] || x.field)}</td>
+      <td>${esc(x.before || "—")}</td><td><strong>${esc(x.value || "空欄")}</strong>${x.error ? `<div style="color:var(--bad);font-size:12px">${esc(x.error)}</div>` : ""}</td>
+      <td class="due">${esc(x.at.slice(5, 16).replace("T", " "))}</td><td><button class="ok-btn" data-wbsdiscard="${esc(x.id)}" title="転記せずに取り消す">✕</button></td></tr>`).join("")}
+    </table></div></details>`;
+}
+const WBS_LABEL = { status: "状態", start: "開始", end: "終了", actual_start: "実績開始", actual_end: "実績完了" };
+
+// 統合（全 WBS）: every WBS file in one screen
+async function openWbsAll(v) {
+  let r;
+  try { r = await api("/api/wbs/overview"); } catch (e) { v.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  const md = x => x ? x.slice(5).replace("-", "/") : "—";
+  const meter = (a, b) => `<div class="meter"><div style="width:${b ? a / b * 100 : 0}%"></div></div>`;
+  const tiles = `<div class="tiles" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:8px">
+    <div class="tile"><div class="label">全体の完了</div><div class="value">${r.done}/${r.total}</div>${meter(r.done, r.total)}</div>
+    <div class="tile"><div class="label">進行中</div><div class="value">${r.doing}</div></div>
+    <div class="tile"><div class="label">残り工数（合計）</div><div class="value">${r.remaining_effort}<small> 人日</small></div></div>
+    <div class="tile"><div class="label">いちばん近い期限</div><div class="value" style="font-size:18px">${esc(r.deadline || "—")}</div></div>
+    <div class="tile"><div class="label">期限切れ / 超過見込み</div><div class="value" style="${r.overdue.length || r.over.length ? "color:var(--bad)" : ""}">${r.overdue.length} / ${r.over.length}</div>
+      <div class="cal-legend" style="margin:0">タスク / ファイル</div></div></div>`;
+  const files = `<div class="tablewrap"><table><tr><th>WBS</th><th>進捗</th><th>進行中</th><th>残り</th><th>期限</th><th>見込み</th><th>余裕</th></tr>
+    ${r.files.map(f => { const over = f.deadline && f.finish && f.finish > f.deadline; return `<tr>
+      <td><a href="#wbs" data-wbsopen="${esc(f.id)}">${esc(f.name)}</a>${r.files.filter(x => x.id === f.id).length > 1 ? ` <span class="muted">${esc(f.sheet)}</span>` : ""}</td>
+      <td style="min-width:110px">${f.done}/${f.total}${meter(f.done, f.total)}</td><td>${f.doing}</td><td>${f.remaining_effort} 人日</td>
+      <td class="due">${esc(f.deadline || "—")}</td><td class="due" style="${over ? "color:var(--bad);font-weight:600" : ""}">${esc(f.finish || "—")}${over ? " ⚠" : ""}</td>
+      <td>${f.slack === null ? "—" : f.slack + " 日"}</td></tr>`; }).join("")}</table></div>`;
+  const sh = { schedule: { bars: r.files.flatMap(f => f.bars), groups: {}, deadline: r.deadline } };
+  const gantt = `<details ${state.wbsGanttOpen ? "open" : ""} data-ganttsheet="all" style="margin-top:8px"><summary><strong>📊 全体スケジュール</strong>
+      <button class="btn" data-ganttbig="all" style="margin-left:8px">${state.wbsGanttBig ? "縮小" : "拡大"}</button>
+      <span class="cal-legend" style="display:inline;margin-left:6px">段 = ファイル・灰=完了・色=進行中・点線=未着手/推定・赤線=今日・黄の点線=いちばん近い期限</span></summary>
+    <div class="gantt-wrap ${state.wbsGanttBig ? "big" : ""}">${ganttSvg(sh, state.wbsGanttBig)}</div></details>`;
+  const taskRow = x => `<tr><td class="due">${md(x.start)}</td><td class="due">${md(x.end)}${x.estimated ? "<span class=muted>*</span>" : ""}</td>
+    <td>${x.mine ? "👤 " : ""}<a href="#wbs" data-gowbs="${esc(x.file)}" data-wbsrow="${x.row}">${esc(x.no)} ${esc(x.title)}</a></td>
+    <td>${esc(x.owner)}</td><td>${esc(x.status || "未着手")}</td><td class="muted" style="font-size:12px">${esc(x.file_name)}</td></tr>`;
+  const head = "<tr><th>開始</th><th>終了</th><th>タスク</th><th>担当</th><th>状態</th><th>WBS</th></tr>";
+  const overdue = r.overdue.length ? `<div class="attn" style="margin:8px 0"><strong>⚠ 期限切れ ${r.overdue.length} 件</strong>
+    <div class="tablewrap"><table>${head}${r.overdue.map(taskRow).join("")}</table></div></div>` : "";
+  const next = `<h3 style="margin:10px 0 4px">▶ 次にやること（開始の早い順・${r.next.length} 件）</h3>
+    <div class="tablewrap"><table>${head}${r.next.map(taskRow).join("") || '<tr><td colspan="6">残りの作業はありません 🎉</td></tr>'}</table></div>
+    <div class="cal-legend">👤 = 自分の担当・* = 終了日を先行関係と期間から推定・押すとその WBS の行へ</div>`;
+  const changes = r.changes.length ? `<details style="margin-top:8px"><summary>最近の変更（Excel の変更履歴・${r.changes.length} 件）</summary><div class="tablewrap"><table>
+    <tr><th>日付</th><th>WBS</th><th>番号</th><th>修正前</th><th>修正後</th><th>理由</th></tr>${r.changes.map(c => `<tr><td class="due">${esc(c.date)}</td><td>${esc(c.file_name)}</td>
+    <td>${esc(c.no)}</td><td>${esc(c.before)}</td><td>${esc(c.after)}</td><td>${esc(c.reason)}</td></tr>`).join("")}</table></div></details>` : "";
+  v.innerHTML = `<div class="toolbar">${wbsListToggle()}<strong>🗂 統合（全 WBS ${r.files.length} 件）</strong></div>` +
+    wbsPendingBar(r.pending, r.sync_minutes, "") + tiles + files + gantt + overdue + next + changes;
+}
+async function openWbs(id) {
+  state.wbsSel = id;
+  document.querySelectorAll(".list [data-wbsopen]").forEach(el => el.classList.toggle("active", el.dataset.wbsopen === id));
+  const v = document.getElementById("wbs-viewer"); if (!v) return;
+  if (id === "__all") return openWbsAll(v);
+  let d;
+  try { d = await api("/api/wbs/file?id=" + encodeURIComponent(id)); } catch (e) { v.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  state.wbsData = d;
+  const today = todayIso(), mine = state.wbsMine;
+  const isMine = r => d.aliases.some(a => a && r.owner.includes(a));
+  const md = x => x ? x.slice(5).replace("-", "/") : "—";
+  v.innerHTML = `<div class="toolbar">${wbsListToggle()}<span class="path">${esc(d.path)}</span>
+      <label class="cal-legend" style="margin:0;cursor:pointer"><input type="checkbox" id="wbs-mine" ${mine ? "checked" : ""}> 自分の担当だけ</label></div>` +
+    wbsPendingBar(d.pending || [], d.sync_minutes, d.id) +
+    d.sheets.map((sh, si) => {
+      const sc = sh.schedule, c = sc.counts;
+      const over = sc.deadline && sc.finish && sc.finish > sc.deadline;
+      const tiles = `<div class="tiles" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:8px">
+        <div class="tile"><div class="label">完了</div><div class="value">${c.done}/${sc.total}</div>
+          <div class="meter"><div style="width:${sc.total ? c.done / sc.total * 100 : 0}%"></div></div></div>
+        <div class="tile"><div class="label">進行中 / 未着手</div><div class="value">${c.doing} / ${c.todo + c.hold}</div></div>
+        <div class="tile"><div class="label">残り工数</div><div class="value">${sc.remaining_effort}<small> 人日</small></div></div>
+        <div class="tile"><div class="label">期限まで</div><div class="value">${sc.deadline ? sc.left_bd + "<small> 営業日</small>" : "—"}</div>
+          <div class="cal-legend" style="margin:0">${esc(sc.deadline || "期限の記載なし")}${sc.slack !== null ? `・工数の余裕 ${sc.slack} 日` : ""}</div></div>
+        <div class="tile"><div class="label">完了の見込み（推定）</div><div class="value" style="font-size:18px;${over ? "color:var(--bad)" : ""}">${esc(sc.finish || "—")}</div>
+          <div class="cal-legend" style="margin:0">${over ? "期限を超える見込み（先行関係を積み上げた推定）" : "期限内の見込み"}</div></div></div>`;
+      const gantt = `<details ${state.wbsGanttOpen ? "open" : ""} data-ganttsheet="${si}"><summary><strong>📊 スケジュール図</strong>
+          <button class="btn" data-ganttbig="${si}" style="margin-left:8px">${state.wbsGanttBig ? "縮小" : "拡大"}</button>
+          <span class="cal-legend" style="display:inline;margin-left:6px">灰=完了・色=進行中・点線=未着手/推定・赤線=今日・縦の灰=休日</span></summary>
+        <div class="gantt-wrap ${state.wbsGanttBig ? "big" : ""}" id="gantt-${si}">${ganttSvg(sh, state.wbsGanttBig)}</div></details>`;
+      const bars = Object.fromEntries(sc.bars.map(b => [b.no, b]));
+      const rows = sh.rows.filter(r => !mine || r.parent || isMine(r)).map(r => {
+        const late = !r.done && !r.parent && (r.end || "") && r.end < today;
+        const pend = f => (r.pending || []).includes(f) ? " pend" : "";
+        const bar = bars[r.no] || {};
+        // planned dates: the sheet value, else the estimate from 先行 + 期間 (italic); leaf rows can be set by hand
+        const plan = f => { const v = r[f] || bar[f] || ""; const est = !r[f] && v;
+          const txt = `${md(v)}${est ? "<span class=est>~</span>" : ""}`;
+          return r.parent ? `<td class="${est ? "est" : ""}">${txt}</td>`
+            : `<td class="due pick${pend(f)}${est ? " est" : ""}" data-wbsdate="${f}" data-row="${r.row}" data-sheet="${esc(sh.name)}"
+                title="${esc(v || "")}${est ? "（推定）" : ""}・押すとカレンダー">${txt}${late && f === "end" ? " ⚠" : ""}</td>`; };
+        const dcell = f => r.parent ? `<td>${md(r[f])}</td>` : `<td class="due pick${pend(f)}" data-wbsdate="${f}" data-row="${r.row}" data-sheet="${esc(sh.name)}" title="${esc(r[f] || "")}（押すとカレンダー）">${md(r[f])}</td>`;
+        return `<tr id="wbsrow-${r.row}" class="${r.parent ? "parent" : r.done ? "done" : ""}" style="${state.wbsJump === r.row ? "outline:2px solid var(--accent)" : ""}">
+          <td style="padding-left:${(r.level - 1) * 12 + 6}px">${esc(r.no)}</td>
+          <td title="${esc(r.title + (r.deliverable ? "\n完了条件: " + r.deliverable : "") + (r.related ? "\n関連: " + r.related : ""))}">${esc(r.title)}</td>
+          <td title="${esc(r.owner)}">${esc(r.owner)}</td><td>${esc(r.effort)}</td>
+          ${plan("start")}${plan("end")}
+          <td>${r.parent ? "" : `<select class="${pend("status")}" data-wbsstatus="${r.row}" data-sheet="${esc(sh.name)}">${[...new Set([r.status, ...WBS_STATUS])].filter(Boolean).map(x => `<option ${x === r.status ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>`}</td>
+          ${dcell("actual_start")}${dcell("actual_end")}</tr>`; }).join("");
+      return `<h3 style="margin:6px 0">${esc(sh.name)}</h3>${tiles}${gantt}
+        ${(sh.notes || []).length ? `<details style="margin-top:6px"><summary>📝 シート内のメモ（${sh.notes.length}）</summary>${sh.notes.map(n =>
+          `<div class="md" style="white-space:pre-wrap;font-size:12.5px;margin:4px 0;padding:6px 8px;border-left:3px solid var(--line)">${esc(n.text)}</div>`).join("")}</details>` : ""}
+        <div class="tablewrap wbs-light" style="margin-top:8px"><table class="wbs"><colgroup><col style="width:54px"><col><col style="width:110px"><col style="width:46px">
+          <col style="width:56px"><col style="width:62px"><col style="width:92px"><col style="width:62px"><col style="width:62px"></colgroup>
+          <tr><th>WBS</th><th>タスク（カーソルで完了条件）</th><th>担当</th><th>工数</th><th>予定開始</th><th>予定終了</th><th>状態</th><th>実績開始</th><th>実績完了</th></tr>${rows}</table></div>
+        <div class="cal-legend">予定・実績の日付は押すとカレンダーで変更（斜体 ~ = 先行と期間からの推定）。灰色の行 = 完了・取り下げ。</div>`;
+    }).join("") +
+    (d.changelog.length ? `<details style="margin-top:10px"><summary>変更履歴（${d.changelog.length} 件）</summary><div class="tablewrap"><table>
+      <tr><th>日付</th><th>WBS</th><th>セル</th><th>修正前</th><th>修正後</th><th>理由</th></tr>${d.changelog.slice().reverse().map(c => `<tr>${c.map(x => `<td>${esc(x)}</td>`).join("")}</tr>`).join("")}</table></div></details>` : "") +
+    '<div class="cal-legend">状態・実績の日付を変えると、まず workspace/wbs/pending.json と changes.md に保存して画面に反映します（黄色の枠 = Excel に未転記）。「📤 Excel に転記」か定期の自動転記で、Excel のそのセルだけを書き換え、変更履歴シートに 1 行追加します（バックアップは logs/wbs-backup/）。予定日が数式のセルは、転記するとその値で上書きします（後続の行の数式はそのまま動きます）。</div>';
+  if (state.wbsJump) { document.getElementById("wbsrow-" + state.wbsJump)?.scrollIntoView({ block: "center" }); state.wbsJump = 0; }
+}
+
+// Gantt like a schedule slide: day columns, weekends/holidays shaded, today line, one lane per top-level item.
+function ganttSvg(sh, big) {
+  const sc = sh.schedule, bars = sc.bars.filter(b => b.start && b.end);
+  if (!bars.length) return '<div class="empty">日付のあるタスクがありません</div>';
+  const day = s => Math.round(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)) / 864e5);
+  const iso = n => new Date(n * 864e5).toISOString().slice(0, 10);
+  const today = todayIso();
+  const lo = Math.min(...bars.map(b => day(b.start)), day(today)) - 1;
+  const hi = Math.max(...bars.map(b => day(b.end)), sc.deadline ? day(sc.deadline) : 0, day(today)) + 2;
+  const W = big ? 26 : 13, LW = big ? 220 : 150, RH = big ? 20 : 12, top = 34;
+  const groups = [...new Set(bars.map(b => b.group))];
+  let y = top, lanes = "", rects = "";
+  const hol = new Set((state.holidayList || []).map(h => h.date));
+  groups.forEach((g, gi) => {
+    const gb = bars.filter(b => b.group === g);
+    const h = gb.length * (RH + 2) + 6;
+    lanes += `<rect x="0" y="${y}" width="${LW + (hi - lo) * W}" height="${h}" fill="${gi % 2 ? "var(--code)" : "transparent"}" opacity=".5"/>
+      <text x="6" y="${y + 13}" font-weight="600">${esc((g ? g + " " : "") + (sc.groups[g] || "")).slice(0, big ? 40 : 22)}</text>`;
+    gb.forEach((b, k) => {
+      const x = LW + (day(b.start) - lo) * W, w = Math.max(W - 2, (day(b.end) - day(b.start) + 1) * W - 2), by = y + 3 + k * (RH + 2);
+      const fill = b.state === "done" ? "var(--muted)" : b.state === "doing" ? "var(--accent)" : b.state === "hold" ? "var(--warn)" : "none";
+      const stroke = b.late ? "var(--bad)" : b.state === "todo" ? "var(--accent)" : "none";
+      rects += `<g><title>${esc(b.no + " " + b.title)}\n${esc(b.start)} 〜 ${esc(b.end)}${b.estimated ? "（推定）" : ""}\n${esc(b.owner)}</title>
+        <rect x="${x}" y="${by}" width="${w}" height="${RH}" rx="3" fill="${fill}" fill-opacity="${b.state === "done" ? .55 : .85}"
+          stroke="${stroke}" stroke-width="${b.late ? 2 : 1}" ${b.state === "todo" || b.estimated ? 'stroke-dasharray="4 2"' : ""}/>
+        ${big && w > 60 ? `<text x="${x + 4}" y="${by + RH - 6}" font-size="10.5">${esc((b.no + " " + b.title).slice(0, Math.floor(w / 7)))}</text>` : ""}</g>`;
+    });
+    y += h;
+  });
+  let axis = "", shade = "";
+  for (let n = lo; n <= hi; n++) {
+    const d = iso(n), wd = new Date(n * 864e5).getUTCDay(), x = LW + (n - lo) * W;
+    if (wd === 0 || wd === 6 || hol.has(d)) shade += `<rect x="${x}" y="${top}" width="${W}" height="${y - top}" fill="var(--muted)" opacity=".15"/>`;
+    if (d.endsWith("-01") || n === lo) axis += `<text x="${x + 2}" y="12" font-weight="600">${+d.slice(5, 7)}月</text>`;
+    if (big || wd === 1) axis += `<text x="${x + 1}" y="27" class="muted" font-size="10">${+d.slice(8, 10)}</text>`;
+  }
+  const tx = LW + (day(today) - lo) * W + W / 2;
+  const dl = sc.deadline ? LW + (day(sc.deadline) - lo) * W + W : 0;
+  return `<svg class="gantt" width="${LW + (hi - lo + 1) * W}" height="${y + 6}">${shade}${lanes}${axis}${rects}
+    <line x1="${tx}" y1="${top - 6}" x2="${tx}" y2="${y}" stroke="var(--bad)" stroke-width="2"/><text x="${tx + 3}" y="${top - 8}" fill="var(--bad)" font-size="10">今日</text>
+    ${dl ? `<line x1="${dl}" y1="${top}" x2="${dl}" y2="${y}" stroke="var(--warn)" stroke-dasharray="5 3" stroke-width="2"/><text x="${dl + 3}" y="${y - 2}" font-size="10" style="fill:var(--warn)">期限</text>` : ""}</svg>`;
+}
+
+async function wbsWrite(sheet, row, field, value, fileId, no) {
+  const reason = "";  // staged edits get "Nakama の画面で更新" as their change-log reason
+  const id = fileId || state.wbsSel;
+  const seen = no || ((state.wbsData?.sheets || []).find(s => s.name === sheet)?.rows || []).find(r => r.row === row)?.no || "";
+  try { const r = await api("/api/wbs/update", { id, sheet, row, field, value, reason, no: seen });
+        toast(r.cancelled ? "Excel の値に戻したので、未転記の変更を取り消しました" : `保存しました（Excel に未転記 ${r.pending} 件）`); state.cache.tasklist = "";
+        if (state.tab === "wbs") openWbs(state.wbsSel); else refreshAfterTaskChange(); }
+  catch (e) { toast(e.message); if (state.tab === "wbs") openWbs(state.wbsSel); }
+}
+document.addEventListener("change", ev => {
+  const t = ev.target;
+  if (t.id === "wbs-mine") { state.wbsMine = t.checked; openWbs(state.wbsSel); }
+  else if (t.dataset && t.dataset.wbsstatus) wbsWrite(t.dataset.sheet, Number(t.dataset.wbsstatus), "status", t.value);
+});
+
+// ---------- Obsidian vault ----------
+const VMODE = { show: "表示", hide: "非表示", lock: "🔒 パスワード" };
+function vaultLeaveOk() {
+  if (!state.vaultEditing) return true;
+  if (!confirm("Vault のファイルに保存していない変更があります。破棄して移動しますか？")) return false;
+  state.vaultEditing = false; return true;
+}
+async function renderVault(rel) {
+  if (!vaultLeaveOk()) return;
+  state.vaultRel = rel;
+  const main = document.getElementById("main");
+  let cfg, r;
+  try { cfg = await api("/api/vault"); } catch (e) { main.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  if (!cfg.root_ok) {
+    main.innerHTML = `<div class="card"><h2>Vault の場所を設定</h2><div class="row"><input id="v-root" placeholder="C:/path/to/vault" style="flex:1">
+      <button class="btn primary" id="v-root-save">設定</button></div></div>`;
+    return;
+  }
+  try { r = await api("/api/vault/list?rel=" + encodeURIComponent(rel)); } catch (e) { main.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  const crumbs = [["Vault", ""]].concat(rel ? rel.split("/").map((x, i, a) => [x, a.slice(0, i + 1).join("/")]) : []);
+  const head = crumbs.map(([n, rr]) => `<a href="#vault" data-vdir="${esc(rr)}">${esc(n)}</a>`).join(" / ");
+  const folderBar = rel && !r.locked ? `<div class="row" style="margin:6px 0"><span class="cal-legend" style="margin:0">このフォルダ:</span>
+      <select id="v-mode">${Object.entries(VMODE).map(([k, l]) => `<option value="${k}" ${r.mode === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+      <label class="cal-legend" style="margin:0;cursor:pointer"><input type="checkbox" id="v-claude" ${r.claude ? "checked" : ""} ${r.mode === "lock" ? "disabled" : ""}> 🤖 Claude に読ませる</label>
+      <span class="cal-legend" style="margin:0">（下のフォルダにも適用）</span></div>` : "";
+  const list = r.locked
+    ? `<div class="card"><h3>🔒 パスワードが必要です</h3><div class="row"><input type="password" id="v-pass" placeholder="パスワード">
+        <button class="btn primary" id="v-unlock">開く</button></div><div class="cal-legend">開いた状態は 30 分、またはサーバーの再起動まで。</div></div>`
+    : r.entries.map(e => `<div class="item" ${e.dir ? `data-vdir="${esc(e.rel)}"` : `data-vfile="${esc(e.rel)}"`}>
+        <div class="t">${e.dir ? "📁" : "📄"} ${esc(e.name)} ${e.mode === "lock" ? "🔒" : ""}${e.claude ? " 🤖" : ""}</div></div>`).join("") || '<div class="empty">空です</div>';
+  main.innerHTML = `<div class="card"><div class="row"><span>${head}</span></div>${folderBar}</div>
+    <div class="split"><div class="list">${list}</div><div class="viewer" id="v-viewer"><div class="empty">ファイルを選ぶと表示・編集できます</div></div></div>`;
+  if (state.vaultFile && state.vaultFile.startsWith(rel ? rel + "/" : "")) openVaultFile(state.vaultFile);
+}
+async function openVaultFile(rel) {
+  if (state.vaultFile !== rel && !vaultLeaveOk()) return;
+  state.vaultFile = rel;
+  document.querySelectorAll("[data-vfile]").forEach(el => el.classList.toggle("active", el.dataset.vfile === rel));
+  const v = document.getElementById("v-viewer"); if (!v) return;
+  let f;
+  try { f = await api("/api/vault/file?rel=" + encodeURIComponent(rel)); } catch (e) { v.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  state.vaultMtime = f.mtime; state.vaultEditing = false;
+  v.innerHTML = `<div class="toolbar"><span class="path">${esc(rel)}${f.locked ? " 🔒" : ""}</span>
+      ${f.editable ? '<button class="btn" id="v-edit">編集</button>' : '<span class="cal-legend" style="margin:0">UTF-8 以外のため読み取り専用</span>'}</div>
+      <div class="md" id="v-body">${renderMarkdown(f.text)}</div>`;
+  v.dataset.raw = f.text;
+}
 // ---------- rongo: the Analects, one chapter a day ----------
 async function renderRongo(id) {
   const main = document.getElementById("main");
@@ -1580,7 +2194,7 @@ async function saveNote() {
         state.noteMtime = r.mtime; state.noteDirty = false; document.getElementById("note-state").textContent = "保存しました"; toast("ノートを保存しました"); }
   catch (e) { toast(e.message); document.getElementById("note-state").textContent = "保存できません: " + e.message; }
 }
-window.addEventListener("beforeunload", ev => { if (state.noteDirty) { ev.preventDefault(); ev.returnValue = ""; } });
+window.addEventListener("beforeunload", ev => { if (state.noteDirty || state.vaultEditing) { ev.preventDefault(); ev.returnValue = ""; } });
 
 // ---------- Claude assist (opens the chat panel with a prepared question) ----------
 async function assist(kind, ref) {
@@ -1655,8 +2269,10 @@ async function openRoutine(id) {
     <div class="row" style="margin:4px 0"><span class="cal-legend" style="margin:0">この月の期日を変える:</span>
       <input type="date" id="r-due" value="${esc((r.windows[0] || [])[1] || "")}"><button class="btn" id="r-due-save">変更</button>
       <button class="btn" id="r-due-reset" title="規則どおりに戻す">戻す</button></div>
+    <div id="rscript"></div>
     <h3 style="margin:10px 0 4px">前の月の対応</h3><div id="rhist" class="cal-legend">読み込み中…</div>
     <div class="notebox" id="notebox"></div>`;
+  loadRoutineScript(r.id);
   api(`/api/routines/history?id=${encodeURIComponent(r.id)}&month=${state.rmonth}`).then(h => {
     const el = document.getElementById("rhist"); if (!el) return;
     el.innerHTML = `<table><tr><th>月</th><th>状態</th><th>期日の変更</th><th>メモ</th></tr>${h.history.map(x => `<tr>
@@ -1666,8 +2282,57 @@ async function openRoutine(id) {
   openNotes(`routine-${r.id}-${state.rmonth}`, `${r.name}（${state.rmonth}）`);
 }
 
+// ---------- ops scripts linked to a routine (fleet.yaml scripts:) ----------
+async function loadRoutineScript(rid) {
+  const box = document.getElementById("rscript"); if (!box) return;
+  let list;
+  try { list = (await api("/api/scripts")).scripts.filter(x => x.routine === rid); } catch { return; }
+  if (!list.length) { box.innerHTML = ""; return; }
+  state.scripts = Object.fromEntries(list.map(x => [x.id, x]));
+  box.innerHTML = list.map(x => scriptCard(x)).join("");
+  list.filter(x => x.running).forEach(x => pollScript(x.id));
+}
+function scriptCard(x, res) {
+  const last = res ? res.last : x.last, running = res ? res.running : x.running;
+  const out = last ? `<div class="cal-legend" style="margin:4px 0">前回: ${esc((last.finished || "").replace("T", " ").slice(5, 16))}
+      ${last.failed ? '<span style="color:var(--bad)">・失敗または取得失敗あり</span>' : "・成功"}</div>
+    ${last.message ? `<div class="muted">送る文案（コピーして自分のメーラー / Teams から送信）</div>
+      <pre style="white-space:pre-wrap;margin:4px 0;padding:8px;border:1px solid var(--line);border-radius:8px;font-size:12.5px">${esc(last.message)}</pre>
+      <button class="btn primary" data-copyscript="${esc(x.id)}">📋 文案をコピー</button>` : ""}
+    ${(x.checklist || []).length ? `<div class="cal-legend" style="margin-top:6px">送る前に: ${x.checklist.map(c => "☐ " + esc(c)).join("<br>")}</div>` : ""}
+    <details style="margin-top:4px"><summary class="cal-legend" style="margin:0">実行ログ（exit ${last.exit}）</summary>
+      <pre style="white-space:pre-wrap;font-size:12px">${esc(last.stdout || "")}${last.stderr ? "\n--- stderr ---\n" + esc(last.stderr) : ""}</pre></details>
+    ${fbBox("スクリプト文案: " + x.name)}` : '<div class="cal-legend">まだ実行していません</div>';
+  return `<div class="card" id="script-${esc(x.id)}" style="margin:8px 0"><h3 style="margin:0 0 4px">🛠 ${esc(x.name)}
+      <button class="btn primary right" data-runscript="${esc(x.id)}" ${running ? "disabled" : ""}>${running ? "実行中…" : "▶ 実行"}</button></h3>
+    <div class="src-list" style="margin:0">${esc(x.cwd)}</div>${planBox(x)}${out}</div>`;
+}
+// q116: this month's budget per environment, entered before running; filled into 計画値 and 内着地/超過
+function planBox(x) {
+  if (!(x.envs || []).length) return "";
+  const missing = x.envs.filter(e => x.plans?.[e] === undefined);
+  return `<div class="row" style="margin:6px 0;gap:6px;align-items:center"><span class="cal-legend" style="margin:0">${esc(x.month)} の計画値（税抜 $）</span>
+    ${x.envs.map(e => `<label class="cal-legend" style="margin:0">${esc(e)} <input class="plan-in" data-env="${esc(e)}" value="${x.plans?.[e] ?? ""}" inputmode="decimal" style="width:90px"></label>`).join("")}
+    <button class="btn" data-saveplan="${esc(x.id)}">保存</button>
+    ${missing.length ? `<span style="color:var(--warn)">未入力: ${missing.map(esc).join("・")}（文案は $XXXXX のまま）</span>` : ""}</div>`;
+}
+async function pollScript(id) {
+  for (let i = 0; i < 60; i++) {
+    let r; try { r = await api("/api/scripts/result?id=" + encodeURIComponent(id)); } catch { return; }
+    const el = document.getElementById("script-" + id); if (!el) return;
+    el.outerHTML = scriptCard(state.scripts[id], r);
+    if (!r.running) { state.scripts[id].last = r.last; toast(r.last && !r.last.failed ? "実行が終わりました。文案を確認してください" : "実行が終わりました（エラーあり・ログを確認）"); return; }
+    await new Promise(ok => setTimeout(ok, 3000));
+  }
+}
+// "この文案、こうしたら？" をその場で要望に送る小さな記入欄（どの文案の近くにも置ける）
+function fbBox(context) {
+  return `<div class="row" style="margin-top:6px"><input class="fb-text" data-fbctx="${esc(context)}" placeholder="この文案への指摘・こうしたら（要望に追加されます）" style="flex:1;min-width:180px">
+    <button class="btn" data-fbsend="1">📋 要望に追加</button></div>`;
+}
+
 // ---------- memo page ----------
-const ROUTE_BTN = { task: "📋 起票 draft を作る", attendance: "🗓️ 勤怠に追加", knowledge: "📚 Coordinator に依頼", keep: "📝 保管で OK" };
+const ROUTE_BTN = { task: "📋 起票 draft を作る", attendance: "🗓️ 勤怠に追加", knowledge: "📚 Coordinator に依頼", reminder: "⏰ リマインドに登録", keep: "📝 保管で OK" };
 async function renderMemoHistory() {
   const main = document.getElementById("main");
   let r;
@@ -1716,7 +2381,8 @@ async function openMemo(stem) {
     const [icon] = MEMO_ICON[x.route] || MEMO_ICON.keep;
     const body = x.route === "task" ? `<pre class="log" style="margin:4px 0">${esc(x.text)}</pre>`
       : x.route === "attendance" ? `<div class="cal-legend" style="margin:2px 0">${att(x)}</div>`
-      : x.route === "knowledge" ? `<div class="cal-legend" style="margin:2px 0">${esc(x.request)}</div>` : "";
+      : x.route === "knowledge" ? `<div class="cal-legend" style="margin:2px 0">${esc(x.request)}</div>`
+      : x.route === "reminder" ? `<div class="cal-legend" style="margin:2px 0">${esc(x.date)} ${esc(x.link || "")}</div>` : "";
     const status = done ? `<span class="pill ${done.action === "apply" ? "done" : "off"}">${done.action === "apply" ? "実行済み" : "却下"}</span>
         ${done.job ? ` → 起票タブのジョブ ${esc(done.job)}` : ""}${done.path ? ` → ${esc(done.path)}` : ""}`
       : `<button class="btn primary" data-memoapply="${i}">${ROUTE_BTN[x.route]}</button> <button class="btn" data-memodismiss="${i}">却下</button>`;
@@ -1841,6 +2507,16 @@ async function renderSettings() {
       <div class="cal-legend">Teams: チャットの「ワークフロー」で「Webhook 要求を受信したらチャットに投稿する」を作り、URL を .env に（例: TEAMS_WEBHOOK_URL）、
         その変数名を fleet.yaml の notify.teams_webhook_env に書く。自分とのチャットに作ればテスト用になります。</div></div>
     <div class="card"><h2>cron（スケジュール）の読み方</h2><div class="md">${renderMarkdown(help)}</div></div></div>
+    <div class="split" style="margin-top:16px">
+      <div class="card"><h2>プロジェクトの参照フォルダ</h2><div id="proj-list" class="cal-legend">読み込み中…</div>
+        <div class="row" style="margin-top:8px"><input id="pj-name" placeholder="プロジェクト名"><input id="pj-note" placeholder="メモ（何がどこにあるか）" style="flex:1"></div>
+        <textarea id="pj-folders" placeholder="参照フォルダのパス（1 行に 1 つ）" style="min-height:60px;margin-top:6px"></textarea>
+        <div style="margin-top:6px"><button class="btn primary" id="pj-save">追加・更新</button></div>
+        <div class="cal-legend">チャットと 🤖 アシストは、プロジェクトの話ならここを先に調べ、根拠をフルパスで引用します（読み取り専用。Excel も読めます）。</div></div>
+      <div class="card"><h2>Vault のパスワード（🔒 フォルダ用）</h2>
+        <div class="row"><input type="password" id="vp-cur" placeholder="今のパスワード（初回は空）"><input type="password" id="vp-new" placeholder="新しいパスワード（8 文字以上）">
+          <button class="btn primary" id="vp-save">設定</button></div>
+        <div class="cal-legend">パスワードは PBKDF2 でハッシュ化して config/vault.json に保存（本体は保存しません）。🔒 のフォルダは Claude には一切渡りません。</div></div></div>
     <div class="split" style="margin-top:16px"><div class="list" id="list"><div class="empty">読み込み中…</div></div>
     <div class="viewer" id="viewer"><div class="empty">左から編集するファイルを選んでください</div></div></div>`;
   let files = [];
@@ -1852,6 +2528,11 @@ async function renderSettings() {
     return head + `<div class="item" data-setting="${esc(f.path)}"><div class="t">${esc(f.label)}</div><div class="s">${esc(f.path)}</div></div>`;
   }).join("");
   if (state.selected.settings) openSetting(state.selected.settings);
+  api("/api/projects").then(r => {
+    const el = document.getElementById("proj-list"); if (!el) return;
+    el.innerHTML = r.projects.map(p => `<div style="margin:4px 0"><strong>${esc(p.name)}</strong> <button class="btn" data-pjdel="${esc(p.name)}">削除</button>
+      ${p.folders.map(f => `<div>・${esc(f)}</div>`).join("")}${p.note ? `<div>${esc(p.note)}</div>` : ""}</div>`).join("") || "まだ登録がありません";
+  }).catch(() => {});
 }
 
 async function openSetting(path) {
@@ -1870,6 +2551,7 @@ async function openSetting(path) {
 }
 
 async function render() {
+  if (ONLY) { document.body.classList.add("only"); state.tab = ONLY; document.title = (TABS.find(t => t.id === ONLY) || {}).label || ONLY; }
   const tab = TABS.find(t => t.id === state.tab) || TABS[0];
   state.tab = tab.id;
   document.getElementById("desc").textContent = tab.desc || "";
@@ -1883,8 +2565,14 @@ async function render() {
   else if (tab.id === "memos") renderMemos();
   else if (tab.id === "routine") renderRoutine();
   else if (tab.id === "note") renderNote();
+  else if (tab.id === "vault") renderVault(state.vaultRel || "");
+  else if (tab.id === "wbs") renderWbs();
+  else if (tab.id === "completed") renderCompleted();
+  else if (tab.id === "decks") renderDecks();
+  else if (tab.id === "agenda") renderAgenda();
   else if (tab.id === "devreq") renderDevreq();
   else if (tab.id === "overtime") renderOvertime();
+  else if (tab.id === "personal") renderPersonal();
   else if (tab.id === "credit") renderCredit();
   else if (tab.id === "rongo") renderRongo();
   else if (tab.id === "costs") renderCosts();
@@ -1904,8 +2592,162 @@ async function refreshOverview(force = false) {
 
 // ---------- events ----------
 document.addEventListener("click", async ev => {
-  const t = ev.target.closest("[data-tab],[data-run],[data-path],[data-status],[data-copyblock],#copy,#reqsend,#logreload,#att-add,#att-paste,#agents-toggle,#samples-toggle,#tasks-done,[data-openitem],#memo-save,#run-all,#pf-save,#notify-test,#ot-add,[data-omonth],[data-otcopy],[data-otdel],#memo-hist,#r-due-save,#r-due-reset,[data-taskdue],#dq-add,#dq-view,#dq-save,[data-dqrow],[data-tmonth],[data-taskdone],[data-assist],[data-goroutine],[data-gonote],#nt-add,#show-done,#note-reload,#note-savebtn,[data-rid],[data-rmonth],[data-rstatus],#r-all,#h-add,#h-import,[data-hdel],[data-note],#note-save,#chat-toggle,#chat-close,#chat-new,#chat-send,[data-memo],[data-memo-open],[data-memoapply],[data-memodismiss],[data-job],[data-klog],#kh-start,#kh-cycle-am,#kh-cycle-pm,#kh-approve,[data-ack],[data-nid],#ack-all,#notif-acked,[data-setting],#setting-save");
+  const t = ev.target.closest("[data-tab],[data-run],[data-path],[data-status],[data-copyblock],#copy,#reqsend,#logreload,#att-add,#att-paste,#agents-toggle,#samples-toggle,#tasks-done,[data-openitem],#memo-save,[data-ganttbig],[data-taskstar],[data-donego],#rem-add,[data-remdone],#brief-run,[data-deckjob],[data-decktpl],[data-deckreview],#ag-add,[data-agst],[data-agsug],[data-wbsopen],[data-wbsdate],#wbs-listtoggle,[data-wbsflush],[data-wbsdiscard],[data-gowbs],[data-vdir],[data-vfile],#v-root-save,#v-unlock,#v-edit,#v-save,#v-cancel,#pj-save,[data-pjdel],#vp-save,[data-duecell],#run-all,#pf-save,#notify-test,#ot-add,[data-omonth],[data-otcopy],[data-otdel],#memo-hist,#r-due-save,#r-due-reset,[data-taskdue],#dq-add,#dq-view,#dq-save,[data-dqrow],[data-tmonth],[data-taskdone],[data-assist],[data-goroutine],[data-gonote],#nt-add,[data-notechild],#show-done,#note-reload,#note-savebtn,[data-rid],[data-rmonth],[data-rstatus],#r-all,#h-add,#h-import,[data-hdel],[data-note],#note-save,#chat-toggle,#chat-close,#chat-new,#chat-send,[data-memo],[data-memo-open],[data-memoapply],[data-memodismiss],[data-job],[data-klog],#kh-start,#kh-cycle-am,#kh-cycle-pm,#kh-approve,[data-ack],[data-nid],#ack-all,#notif-acked,[data-copydraft],[data-runscript],[data-saveplan],[data-react],#qmemo-btn,#qmemo-save,#qmemo-task,#qmemo-close,[data-copyscript],[data-fbsend],[data-setting],#setting-save");
   if (!t) return;
+  if (t.dataset.duecell !== undefined) {
+    ev.stopPropagation();
+    const row = (state.taskRows || [])[Number(t.dataset.duecell)];
+    if (!row) return;
+    pickDate(t, row.due, due => changeDue(row, due));
+    return;
+  }
+  if (t.dataset.taskstar !== undefined) {
+    ev.stopPropagation();
+    const row = (state.taskRows || [])[Number(t.dataset.taskstar)]; if (!row) return;
+    try { await api("/api/tasks/star", { source: row.source, key: row.key, line: row.line, raw: row.raw, star: !row.star });
+          toast(row.star ? "★ を外しました" : (row.source === "note" ? "ノートに ★ を付けました" : "★ を付けました（一番上に表示）"));
+          refreshAfterTaskChange(); }
+    catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.dataset.donego !== undefined) {
+    ev.preventDefault();
+    const x = state.doneRows[Number(t.dataset.donego)];
+    if (x.tab === "note") { state.tab = "note"; location.hash = "note"; renderHeader(); renderNote(x.line); return; }
+    if (x.tab === "wbs") { state.wbsSel = x.wbs_file; state.wbsJump = x.wbs_row; }
+    if (x.tab === "routine") { state.rsel = x.rid; state.rmonth = x.month; }
+    if (x.path) { state.selected[x.tab] = x.path; state.showDone = true; }
+    state.tab = x.tab; location.hash = x.tab; render();
+    return;
+  }
+  if (t.id === "rem-add") {
+    const title = prompt("リマインドの内容（例: 調整さんの締め切り）", ""); if (!title) return;
+    const date = prompt("日付（YYYY-MM-DD）", todayIso()); if (!date) return;
+    const link = prompt("リンク（任意・http から）", "") || "";
+    try { await api("/api/reminders/add", { title, date, link, lead_days: 1 }); toast("リマインドを追加しました（前日からエスカレに出ます）"); loadNotifications(); }
+    catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.dataset.remdone) {
+    ev.stopPropagation();
+    try { await api("/api/reminders/done", { id: t.dataset.remdone, done: true }); toast("済みにしました"); loadNotifications(); } catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.id === "brief-run") {
+    ev.preventDefault();
+    if (!confirm("Asa に今日のブリーフを作らせます（1〜2 分・サブスク枠を使います）。")) return;
+    try { await api("/api/brief/run", {}); toast("Asa を起動しました。少ししたら再読み込みしてください"); } catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.dataset.deckjob) {
+    const path = t.dataset.pathfrom ? document.getElementById(t.dataset.pathfrom).value : "";
+    const label = t.dataset.deckjob === "learn" ? "過去の資料からトーンを学習" : "資料を添削";
+    if (!confirm(`${t.dataset.meeting}: ${label}します（Tensaku・数分・サブスク枠を使います）。`)) return;
+    try { await api("/api/decks/job", { kind: t.dataset.deckjob, meeting: t.dataset.meeting, path }); toast("Tensaku を起動しました"); renderDecks(); }
+    catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.dataset.decktpl) {
+    try { const r = await api("/api/decks/template", { meeting: t.dataset.decktpl }); toast("テンプレを保管しました: " + r.path); renderDecks(); } catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.dataset.deckreview) {
+    try { const f = await api("/api/file?path=" + encodeURIComponent(t.dataset.path)); document.getElementById("deck-viewer").innerHTML = renderMarkdown(f.content); }
+    catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.id === "ag-add") {
+    const v = id => document.getElementById(id).value;
+    try { await api("/api/agenda/add", { meeting: v("ag-meet"), topic: v("ag-topic"), owner: v("ag-owner"), next_action: v("ag-next") }); toast("追加しました"); renderAgenda(); }
+    catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.dataset.agst) {
+    const note = prompt("ひとことメモ（経緯に残します。空欄でも可）", "");
+    if (note === null) return;
+    try { await api("/api/agenda/update", { id: t.dataset.id, status: t.dataset.agst, note }); renderAgenda(); } catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.dataset.agsug) {
+    try { await api("/api/agenda/suggestion", { file: t.dataset.agsug, index: Number(t.dataset.idx), accept: t.dataset.accept === "1" }); renderAgenda(); }
+    catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.dataset.ganttbig !== undefined) {
+    ev.preventDefault(); state.wbsGanttBig = !state.wbsGanttBig; state.wbsGanttOpen = true; openWbs(state.wbsSel); return;
+  }
+  if (t.dataset.wbsopen) { ev.preventDefault(); openWbs(t.dataset.wbsopen); return; }
+  if (t.id === "wbs-listtoggle") {
+    const hidden = store.get("wbsListHidden") !== "1";
+    store.set("wbsListHidden", hidden ? "1" : "0");
+    document.getElementById("wbs-split")?.classList.toggle("nolist", hidden);
+    t.outerHTML = wbsListToggle();
+    return;
+  }
+  if (t.dataset.wbsflush !== undefined) {
+    ev.preventDefault(); t.disabled = true;
+    try { const r = await api("/api/wbs/flush", { id: t.dataset.wbsflush });
+          toast(`Excel に ${r.written} 件転記しました` + (r.skipped_open.length ? `・Excel で開いているため保留: ${r.skipped_open.join(", ")}` : "") +
+                (r.errors.length ? `・失敗 ${r.errors.length} 件（一覧に理由）` : "")); }
+    catch (e) { toast(e.message); }
+    state.cache.tasklist = ""; openWbs(state.wbsSel); return;
+  }
+  if (t.dataset.wbsdiscard) {
+    if (!confirm("この変更を Excel に転記せずに取り消しますか？")) return;
+    try { await api("/api/wbs/discard", { pid: t.dataset.wbsdiscard }); toast("取り消しました"); } catch (e) { toast(e.message); }
+    state.cache.tasklist = ""; openWbs(state.wbsSel); return;
+  }
+  if (t.dataset.wbsdate) {
+    const cur = (t.title || "").slice(0, 10);  // the title holds the full YYYY-MM-DD
+    pickDate(t, /^\d{4}-\d{2}-\d{2}$/.test(cur) ? cur : "", v => {
+      if (t.dataset.wbsdate === "end" && !state.wbsEndOk) {
+        if (!confirm("予定終了は多くの WBS で「開始＋期間」の数式です。Excel に転記するとこの行だけ固定の日付になります（後続の行は自動でずれます）。変更しますか？")) return;
+        state.wbsEndOk = true;
+      }
+      wbsWrite(t.dataset.sheet, Number(t.dataset.row), t.dataset.wbsdate, v);
+    });
+    return;
+  }
+  if (t.dataset.gowbs) { ev.preventDefault(); state.wbsSel = t.dataset.gowbs; state.wbsJump = Number(t.dataset.wbsrow); state.tab = "wbs"; location.hash = "wbs"; render(); return; }
+  if (t.dataset.vdir !== undefined) { ev.preventDefault(); renderVault(t.dataset.vdir); return; }
+  if (t.dataset.vfile) { openVaultFile(t.dataset.vfile); return; }
+  if (t.id === "v-root-save") { try { await api("/api/vault/config", { root: document.getElementById("v-root").value }); renderVault(""); } catch (e) { toast(e.message); } return; }
+  if (t.id === "v-unlock") {
+    try { state.vaultToken = (await api("/api/vault/unlock", { password: document.getElementById("v-pass").value })).token; toast("開きました（30 分）"); renderVault(state.vaultRel); }
+    catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.id === "v-edit") {
+    const v = document.getElementById("v-viewer");
+    document.getElementById("v-body").outerHTML = `<textarea class="note-editor" id="v-text" spellcheck="false"></textarea>
+      <div style="margin-top:6px"><button class="btn primary" id="v-save">保存（Ctrl+S）</button> <button class="btn" id="v-cancel">やめる</button></div>`;
+    const ed = document.getElementById("v-text"); ed.value = v.dataset.raw; ed.addEventListener("keydown", ev2 => {
+      if (ev2.key === "s" && (ev2.ctrlKey || ev2.metaKey)) { ev2.preventDefault(); document.getElementById("v-save").click(); }
+      else if (ev2.key === "Tab" || (ev2.key === "Enter" && (ev2.ctrlKey || ev2.metaKey)) || (ev2.altKey && ev2.key.toLowerCase() === "s")) noteKeys(ev2);
+    });
+    t.remove(); state.vaultEditing = true; ed.focus();
+    return;
+  }
+  if (t.id === "v-cancel") { state.vaultEditing = false; openVaultFile(state.vaultFile); return; }
+  if (t.id === "v-save") {
+    try { const r = await api("/api/vault/save", { rel: state.vaultFile, text: document.getElementById("v-text").value, mtime: state.vaultMtime });
+          state.vaultMtime = r.mtime; state.vaultEditing = false; toast("保存しました（バックアップは logs/vault-backup/）"); openVaultFile(state.vaultFile); }
+    catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.id === "pj-save") {
+    const v = id => document.getElementById(id).value;
+    try { await api("/api/projects/save", { name: v("pj-name"), note: v("pj-note"), folders: v("pj-folders").split(/\r?\n/) }); toast("登録しました"); renderSettings(); }
+    catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.dataset.pjdel) { if (!confirm(`${t.dataset.pjdel} を削除しますか？（フォルダ自体は消えません）`)) return;
+    try { await api("/api/projects/delete", { name: t.dataset.pjdel }); renderSettings(); } catch (e) { toast(e.message); } return; }
+  if (t.id === "vp-save") {
+    try { await api("/api/vault/password", { current: document.getElementById("vp-cur").value, new: document.getElementById("vp-new").value }); toast("パスワードを設定しました"); }
+    catch (e) { toast(e.message); }
+    return;
+  }
   if (t.id === "run-all") {
     if (!confirm("有効なエージェントを順に実行します（入力が無いもの・祝日のものは通常どおりスキップ。Kihyo は除く）。サブスク枠を使います。")) return;
     try { const r = await api("/api/run_all", {}); toast(`実行開始: ${r.started.join(", ")}`); setTimeout(refreshOverview, 1500); } catch (e) { toast(e.message); }
@@ -1949,15 +2791,16 @@ document.addEventListener("click", async ev => {
     const r = state.taskRows[Number(t.dataset.taskdue)];
     const due = prompt(`「${r.title}」の期日（YYYY-MM-DD、空欄で解除）`, r.due || todayIso());
     if (due === null) return;
-    try { await api("/api/tasks/due", { source: r.source, id: r.id, month: r.month, line: r.line, raw: r.raw, due: due.trim() });
-          toast(r.source === "note" ? "ノートに 📅 を書き込みました" : "期日を変更しました"); state.cache.tasklist = ""; renderTasks(); }
+    try { await api("/api/tasks/due", { source: r.source, id: r.id, month: r.month, line: r.line, raw: r.raw, due: due.trim(), key: r.key,
+                                        wbs_file: r.wbs_file, wbs_sheet: r.wbs_sheet, wbs_row: r.wbs_row, wbs_no: r.wbs_no });
+          toast(r.source === "note" ? "ノートに 📅 を書き込みました" : "期日を変更しました"); refreshAfterTaskChange(); }
     catch (e) { toast(e.message); }
     return;
   }
   if (t.id === "dq-view") { state.dqNotes = !state.dqNotes; renderDevreq(); return; }
   if (t.id === "dq-save") {
     const v = id => document.getElementById(id).value;
-    try { await api("/api/devreq/update", { id: t.dataset.id, change: v("dq-change"), usage: v("dq-usage"), note: v("dq-note") }); toast("保存しました"); renderDevreq(); }
+    try { await api("/api/devreq/update", { id: t.dataset.id, instruction: v("dq-instr"), change: v("dq-change"), usage: v("dq-usage"), note: v("dq-note") }); toast("保存しました"); renderDevreq(); }
     catch (e) { toast(e.message); }
     return;
   }
@@ -1977,13 +2820,19 @@ document.addEventListener("click", async ev => {
     ev.stopPropagation();
     const r = state.taskRows[Number(t.dataset.taskdone)], done = t.dataset.done === "1";
     try { await api("/api/tasks/done", { source: r.source, id: r.id, month: r.month, line: r.line, raw: r.raw, done });
-          toast(done ? (r.source === "note" ? "ノートを ■ にしました" : "完了にしました") : "未完了に戻しました"); state.cache.tasklist = ""; renderTasks(); }
+          toast(done ? (r.source === "note" ? "ノートを ■ にしました" : "完了にしました") : "未完了に戻しました"); refreshAfterTaskChange(); }
     catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.dataset.notechild !== undefined) {
+    ev.stopPropagation(); ev.preventDefault();
+    const row = (state.taskRows || [])[Number(t.dataset.notechild)]; if (!row) return;
+    openChildInput(t.closest("tr"), row);
     return;
   }
   if (t.id === "nt-add") {
     const text = document.getElementById("nt-text").value, star = document.getElementById("nt-star").checked;
-    try { const r = await api("/api/note/add", { text, star }); toast(`ノートの「${r.section || "先頭"}」に追加しました`); state.cache.tasklist = ""; renderTasks(); }
+    try { const r = await api("/api/note/add", { text, star }); toast(`ノートの「${r.section || "先頭"}」に追加しました`); refreshAfterTaskChange(); }
     catch (e) { toast(e.message); }
     return;
   }
@@ -1991,7 +2840,7 @@ document.addEventListener("click", async ev => {
     ev.stopPropagation();
     const kind = t.dataset.assist;
     if (kind === "task") { const r = state.taskRows[Number(t.dataset.row)]; assist("task", { title: r.title, source: r.source, due: r.due, status: r.status, memo: r.memo || r.section || "", key: r.key }); }
-    else if (kind === "notice") { const n = (state.notif?.items || []).find(x => x.id === t.dataset.nid2) || {}; assist("notice", { kind: n.kind, title: n.title, detail: n.detail + (n.extra || []).map(x => `\n- ${x.title} → ${x.detail}`).join("") }); }
+    else if (kind === "notice") { const n = (state.notif?.items || []).find(x => x.id === t.dataset.nid2) || {}; assist("notice", { kind: n.kind, title: n.title, link: n.link, draft: n.draft, detail: n.detail + (n.extra || []).filter(x => x.title !== "rid").map(x => `\n- ${x.title} → ${x.detail}`).join("") }); }
     else if (kind === "action") { const v = document.getElementById("viewer"); assist("notice", { kind: "action", title: v.dataset.path, detail: v.dataset.raw }); }
     else assist("overall", {});
     return;
@@ -2068,8 +2917,52 @@ document.addEventListener("click", async ev => {
   }
   if (t.dataset.ack) {
     ev.stopPropagation();
-    try { await api("/api/notifications/ack", { ids: [t.dataset.ack] }); } catch (e) { toast(e.message); }
+    try { await api("/api/notifications/ack", { ids: [t.dataset.ack] }); toast("確認済みにしました（エスカレ下の「✓ 片付けたもの」と 完了済みタブで見られます）"); }
+    catch (e) { toast(e.message); }
     loadNotifications(); return;
+  }
+  if (t.dataset.runscript) {
+    const x = state.scripts[t.dataset.runscript];
+    if (!confirm(`「${x.name}」を実行します（${x.cwd}）。よろしいですか？`)) return;
+    try { await api("/api/scripts/run", { id: x.id }); toast("実行を始めました"); pollScript(x.id); } catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.dataset.react) {
+    ev.stopPropagation();
+    const it = (state.notif?.items || []).find(x => x.id === t.dataset.react); const inp = t.parentElement.querySelector(".react-text");
+    const text = (inp?.value || "").trim(); if (!text) { toast("リアクションを書いてから送ってください"); return; }
+    try { await api("/api/notifications/react", { text, title: it?.title || "", kind: it?.kind || "" }); inp.value = "";
+          toast("送りました。Coordinator が次のバッチ（15 分ごと）で指示に反映します"); } catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.id === "qmemo-btn" || t.id === "qmemo-close") { const p = document.getElementById("qmemo"); p.classList.toggle("open", t.id === "qmemo-btn" && !p.classList.contains("open"));
+    if (p.classList.contains("open")) document.getElementById("qmemo-text").focus(); return; }
+  if (t.id === "qmemo-save" || t.id === "qmemo-task") { await quickMemo(t.id === "qmemo-task"); return; }
+  if (t.dataset.saveplan) {
+    const card = document.getElementById("script-" + t.dataset.saveplan);
+    const values = Object.fromEntries([...card.querySelectorAll(".plan-in")].map(i => [i.dataset.env, i.value]));
+    try { const r = await api("/api/scripts/plans", { id: t.dataset.saveplan, values });
+          state.scripts[t.dataset.saveplan].plans = r.plans; toast("計画値を保存しました（次の実行から文案に反映）");
+          card.outerHTML = scriptCard(state.scripts[t.dataset.saveplan]); } catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.dataset.copyscript) {
+    const last = state.scripts[t.dataset.copyscript]?.last;
+    try { await navigator.clipboard.writeText(last.message); toast("文案をコピーしました"); } catch { toast("コピーできませんでした（選択してコピーしてください）"); }
+    return;
+  }
+  if (t.dataset.fbsend) {
+    ev.stopPropagation();
+    const inp = t.parentElement.querySelector(".fb-text"); const text = (inp?.value || "").trim();
+    if (!text) { toast("指摘を書いてから押してください"); return; }
+    try { const r = await api("/api/devreq/add", { text: `${inp.dataset.fbctx}: ${text}`, note: "文案の横の記入欄から" });
+          inp.value = ""; toast(`要望 ${r.id} に追加しました`); } catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.dataset.copydraft) {
+    const n = (state.notif?.items || []).find(x => x.id === t.dataset.copydraft);
+    if (n) { try { await navigator.clipboard.writeText(n.draft); toast("文面をコピーしました"); } catch { toast("コピーできませんでした（文面を選択してコピーしてください）"); } }
+    return;
   }
   if (t.id === "ack-all") {
     const ids = (state.notif?.items || []).filter(i => !i.acked).map(i => i.id);
@@ -2115,6 +3008,7 @@ document.addEventListener("click", async ev => {
     return;
   }
   if (t.dataset.tab) {
+    if (state.tab === "vault" && !vaultLeaveOk()) return;
     state.tab = t.dataset.tab; (state.groupLast ||= {})[groupOf(state.tab).id] = state.tab;
     location.hash = state.tab; render(); return;
   }

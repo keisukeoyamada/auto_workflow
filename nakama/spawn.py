@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from .config import ROOT
@@ -35,8 +36,17 @@ def spawn_nakama(args: list[str]) -> subprocess.Popen:
 
 def spawn_agent(name: str, force: bool = False, extra_args: list[str] | None = None) -> subprocess.Popen:
     cmd = [console_python(), "-m", "nakama", "run", name] + (["--force"] if force else []) + (extra_args or [])
-    return subprocess.Popen(
-        cmd, cwd=ROOT, env={**os.environ, "NAKAMA_HOME": str(ROOT)},
-        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        creationflags=NO_WINDOW,  # the child logs to logs/nakama.log itself
-    )
+    # The child logs to logs/nakama.log itself; a crash before/outside logging (traceback) lands here instead of nowhere.
+    err_dir = ROOT / "logs" / "stderr"
+    err_dir.mkdir(parents=True, exist_ok=True)
+    err = open(err_dir / f"{name}.log", "ab")  # noqa: SIM115 - handed to the child, closed by the OS when it exits
+    err.write(f"\n===== {name} {datetime.now().isoformat(timespec='seconds')} =====\n".encode())
+    err.flush()
+    try:
+        return subprocess.Popen(
+            cmd, cwd=ROOT, env={**os.environ, "NAKAMA_HOME": str(ROOT)},
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=err,
+            creationflags=NO_WINDOW,
+        )
+    finally:
+        err.close()  # the child keeps its own handle

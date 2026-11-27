@@ -75,6 +75,10 @@ class Fleet:
     cost_plans: list[dict[str, Any]] = field(default_factory=list)  # license scenarios for the cost tab
     todo_note: dict[str, Any] = field(default_factory=dict)  # hand-written ToDo note synced both ways
     overtime: dict[str, Any] = field(default_factory=dict)  # overtime log / 18:00 reminder settings
+    wbs: dict[str, Any] = field(default_factory=dict)  # WBS Excel discovery (roots, owner_aliases)
+    decks: dict[str, Any] = field(default_factory=dict)  # recurring-meeting deck folders (Tensaku)
+    scripts: list[Any] = field(default_factory=list)  # ops scripts runnable from the dashboard (nakama/scripts.py)
+    meeting_prompts: list[Any] = field(default_factory=list)  # "take AI minutes" nudges around recurring meetings
     credit: dict[str, Any] = field(default_factory=dict)  # credit card statement split tab (off by default)
     rongo: dict[str, Any] = field(default_factory=dict)  # the Analects, one chapter a day (off by default)
 
@@ -121,6 +125,10 @@ def load_fleet(path: Path | None = None) -> Fleet:
         cost_plans=raw.get("cost_plans") or [],
         todo_note=raw.get("todo_note") or {},
         overtime=raw.get("overtime") or {},
+        wbs=raw.get("wbs") or {},
+        decks=raw.get("decks") or {},
+        scripts=raw.get("scripts") or [],
+        meeting_prompts=raw.get("meeting_prompts") or [],
         credit=raw.get("credit") or {},
         rongo=raw.get("rongo") or {},
         timezone=raw.get("timezone", "UTC"),

@@ -1,7 +1,8 @@
 """A small tracker for requests to Nakama itself (what the owner asked for and where it stands).
 
 Stored in workspace/dev/requests.json (git-ignored):
-  [{id, text, status: open|partial|done|hold, note, change, usage, created, updated}]
+  [{id, text, status: open|partial|consult|done|hold, instruction, note, change, usage, created, updated}]
+  instruction = the owner's direction for this item (answers to 要相談, priorities, "this is fine")
   change = what was changed and how (release note), usage = how to use it
 """
 from __future__ import annotations
@@ -49,7 +50,7 @@ def add(text: str, status: str = "open", note: str = "") -> dict[str, Any]:
 
 
 def update(rid: str, status: str | None = None, note: str | None = None,
-           change: str | None = None, usage: str | None = None) -> dict[str, Any]:
+           change: str | None = None, usage: str | None = None, instruction: str | None = None) -> dict[str, Any]:
     rows = load()
     row = next((r for r in rows if r["id"] == rid), None)
     if row is None:
@@ -58,7 +59,7 @@ def update(rid: str, status: str | None = None, note: str | None = None,
         if status not in STATUSES:
             raise ValueError(f"status は {STATUSES} のどれか")
         row["status"] = status
-    for key, value in (("note", note), ("change", change), ("usage", usage)):
+    for key, value in (("note", note), ("change", change), ("usage", usage), ("instruction", instruction)):
         if value is not None:
             row[key] = str(value)[:4000]
     row["updated"] = datetime.now().isoformat(timespec="minutes")

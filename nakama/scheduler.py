@@ -18,9 +18,14 @@ log = logging.getLogger(__name__)
 def _job(name: str) -> None:
     # Each job gets its own event loop; failures are logged, never crash the scheduler.
     try:
-        if sys.platform == "win32":
+        extra: list[str] = []
+        if name == "asa":  # the morning brief needs material only Nakama can collect (synced folders etc.)
+            from .ui import brief_material
+
+            extra = ["--extra", brief_material()]
+        if sys.platform == "win32" or extra:
             # Run in a hidden-console child so the Claude CLI doesn't pop up a terminal window.
-            code = spawn_agent(name).wait()
+            code = spawn_agent(name, extra_args=extra).wait()
             if code:
                 log.error("%s: run exited with code %d (see the lines above)", name, code)
             return
@@ -88,6 +93,17 @@ def _reload_if_changed(scheduler: BlockingScheduler, seen: dict) -> None:
 
 RELOAD_JOB_ID = "_reload_fleet"
 REMIND_JOB_ID = "_reminders"
+WBS_SYNC_JOB_ID = "_wbs_sync"
+
+
+def _wbs_sync() -> None:
+    """Copy WBS edits made in the dashboard into the Excel files (skips files that are open in Excel)."""
+    from . import wbs
+
+    if not wbs.load_pending():
+        return
+    r = wbs.flush()
+    log.info("wbs sync: written=%d pending=%d open=%s errors=%d", r["written"], r["pending"], r["skipped_open"], len(r["errors"]))
 
 
 def _reminders() -> None:
@@ -122,6 +138,10 @@ def build_scheduler() -> BlockingScheduler:
     seen = {"mtime": _fleet_mtime()}
     scheduler.add_job(_reload_if_changed, "interval", seconds=60, args=[scheduler, seen], id=RELOAD_JOB_ID)
     scheduler.add_job(_reminders, "interval", minutes=5, id=REMIND_JOB_ID)
+    from .wbs import sync_minutes
+
+    if sync_minutes():
+        scheduler.add_job(_wbs_sync, "interval", minutes=sync_minutes(), id=WBS_SYNC_JOB_ID)
     return scheduler
 
 

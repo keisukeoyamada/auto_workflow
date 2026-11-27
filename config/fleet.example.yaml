@@ -63,38 +63,19 @@ overtime:
   template: "【残業申請】{date}（{wd}） {start}〜{end}（{hours}h）
 理由: {reason}"
 
-# Credit card statement split (Personal > クレジット精算). Off unless enabled.
-# Upload the card company's statement CSV each month, decide per row who pays
-# (shared budget by default / member A / member B / half / typed amounts), enter the debit
-# account balance, and the tab shows how much each side deposits. Data: workspace/credit/ (git-ignored).
-credit:
-  enabled: false
-  members:                      # exactly two; `match` = how the card member appears in the CSV
-    - label: "A"
-      color: blue               # blue | pink | green | orange | purple | gray
-      match: ["TARO YAMADA"]
-    - label: "B"
-      color: pink
-      match: ["HANAKO YAMADA"]
-  shared_label: "共同"           # what pays the rest (e.g. a shared household budget)
-  account_label: "引き落とし口座"
-  closing_day: 19               # statement closing day; used to name the month (YYYYMM) of an upload
-  # exclude: ["前回分口座振替"]    # rows that are not purchases (this one is always excluded); add more if needed
-  # csv:                        # extra header names, if your CSV's columns are named differently
-  #   date: ["ご利用日"]
-  #   merchant: ["ご利用店名"]
-  #   amount: ["ご利用金額"]
-  #   holder: ["ご利用者"]
+# Optional: recurring-meeting decks for Tensaku (資料 tab). Folders are only read; templates are copied locally.
+decks:
+  meetings:
+    - {name: "Weekly sync", folder: "C:/path/to/decks/weekly", learn_last: 6}
 
-# The Analects, one chapter a day (Personal > 論語). Off unless enabled.
-# The original text (public domain, 512 chapters) ships with the app: nakama/data/lunyu.json.
-# Every morning Claude writes 書き下し文 / 現代語訳 / 語句 / 教訓 / 今日の問い for the next few unread chapters
-# (one short call per chapter; needs the same Claude credential as the agents). Data: workspace/rongo/.
-rongo:
-  enabled: false
-  schedule: "15 5 * * *"        # when to prepare explanations (cron, fleet timezone)
-  ahead: 3                      # how many unread chapters to keep ready
-  model: claude-sonnet-5-5
+# Optional: nudge to take AI minutes around recurring meetings (business days, from <= now < until).
+# The notice shows the "## プロンプト" section of the note as copyable text and links to it in Obsidian.
+meeting_prompts:
+  - {name: "朝会", from: "10:15", until: "11:30", note: "C:/path/to/vault/minutes-prompt.md"}
+  - {name: "夕会", from: "16:00", until: "18:30", note: "C:/path/to/vault/minutes-prompt.md"}
+# Optional: Personal tab features (one block per feature; the tab shows only when enabled).
+# <feature>:
+#   enabled: true
 
 # Where each data source lives.
 #   local        -> files under workspace/ (default; works with zero integrations)
@@ -204,6 +185,25 @@ agents:
     # Runs only when a memo was added since the last run.
     trigger_paths: [workspace/memos]
     writes: [workspace/kikitori, workspace/memos, workspace/reports]
+
+  tensaku:
+    enabled: true
+    model: claude-opus-5-5       # writing review / tone -> highest care
+    effort: medium
+    schedule: []                 # run from the dashboard (資料 tab)
+    max_turns: 60
+    max_budget_usd: 2.00
+    writes: [knowledge/decks, workspace/decks/reviews, workspace/agenda/suggestions, workspace/reports]
+
+  asa:
+    enabled: true
+    model: claude-sonnet-5-5     # daily summary of material Nakama already collected
+    effort: medium
+    schedule: ["30 8 * * mon-fri"]
+    skip_holidays: true
+    max_turns: 20
+    max_budget_usd: 0.40
+    writes: [workspace/brief, workspace/reports]
 
   coordinator:
     enabled: true
