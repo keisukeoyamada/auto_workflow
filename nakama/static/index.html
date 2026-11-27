@@ -300,6 +300,10 @@
   header { position: sticky; top: 0; z-index: 10; backdrop-filter: saturate(180%) blur(12px);
            background: color-mix(in srgb, var(--panel) 82%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
   header h1 { font-weight: 650; letter-spacing: -.01em; }
+  /* no top bar: the header is only the floating chat button (status line lives in the footer) */
+  header { position: fixed; top: 8px; right: 16px; left: auto; padding: 0; z-index: 20; background: none;
+           border: 0; backdrop-filter: none; width: auto; }
+  #nav { padding-right: 56px; }  /* room for the floating chat button */
   #nav { position: sticky; top: var(--hdr-h, 52px); z-index: 9; background: var(--bg); }
   .card, .tile, .list, .viewer { border: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
                                  box-shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 6px 20px rgba(0, 0, 0, .04); }
@@ -315,7 +319,6 @@
 </head>
 <body>
 <header>
-  <div class="meta" id="hdr"></div>
   <button class="btn chatbtn" id="chat-toggle" title="Claude に相談（読み取り専用）">💬</button>
 </header>
 <div id="nav" class="navwrap"></div>
@@ -347,7 +350,8 @@ const TOKEN = "__NAKAMA_TOKEN__";
 const ONLY = new URLSearchParams(location.search).get("only") || "";  // q125: ?only=wbs shows that tab alone (for sharing)
 if (ONLY) { document.documentElement.classList.add("only"); addEventListener("DOMContentLoaded", () => document.body.classList.add("only")); }
 // q107: keep the tab rows pinned right under the header, whatever its height
-const pinNav = () => document.documentElement.style.setProperty("--hdr-h", document.querySelector("header").offsetHeight + "px");
+// The header is now just a floating chat button, so the tabs pin to the very top.
+const pinNav = () => document.documentElement.style.setProperty("--hdr-h", "0px");
 addEventListener("resize", pinNav); addEventListener("load", pinNav);
 const TABS = [
   { id: "home", label: "ダッシュボード", desc: "状態・タスク・不在をひと目で。" },
@@ -370,6 +374,7 @@ const TABS = [
   { id: "vault", label: "Vault", desc: "Obsidian Vault の閲覧・編集。🔒 は Claude に渡さない。" },
   { id: "note", label: "ノート", desc: "手書き ToDo ノート。Tab で入れ子、Ctrl+S で保存。" },
   { id: "overtime", label: "残業", desc: "残業の記録と申請文。" },
+  { id: "personal", label: "概要", desc: "個人用の機能の置き場所。fleet.yaml で有効にした機能がここに並ぶ。" },
   { id: "credit", label: "クレジット精算", feature: "credit", desc: "カード明細の CSV を取り込み、行ごとに誰が負担するかを振り分けて、各自と共同からの入金額を出す（fleet.yaml の credit で有効化）。" },
   { id: "rongo", label: "論語", feature: "rongo", desc: "論語を 1 日 1 章。原文・書き下し文・現代語訳・教訓・今日の問いを読んで「読んだ」を押す。全体の進み具合と連続日数も記録（fleet.yaml の rongo で有効化）。" },
   { id: "routine", label: "ルーティン", desc: "定常作業を営業日ベースで管理。" },
@@ -395,7 +400,7 @@ const GROUPS = [
   { id: "g-rec", label: "記録", tabs: ["reports", "knowledge", "costs", "log"] },
   // Personal: optional tabs that each instance turns on in fleet.yaml (home NAS: credit; work PC: e.g. career).
   // A group whose tabs are all off is not shown at all.
-  { id: "g-personal", label: "Personal", tabs: ["credit", "rongo"] },
+  { id: "g-personal", label: "Personal", tabs: ["personal", "credit", "rongo"] },
   { id: "g-sys", label: "設定", tabs: ["settings", "devreq", "guide"] },
 ];
 const groupOf = tabId => GROUPS.find(g => g.tabs.includes(tabId)) || GROUPS[0];
@@ -536,10 +541,9 @@ function setHTMLCached(id, html) {
 }
 function renderHeader() {
   const o = state.overview; if (!o) return;
-  // q130: owner / auth are rarely needed -> moved to the page footer
-  setHTMLCached("sysinfo", [o.owner && `オーナー: ${esc(o.owner)}`, `認証: ${esc(o.auth)}`]
-    .filter(Boolean).map(s => `<span>${s}</span>`).join(""));
-  setHTMLCached("hdr", [
+  // q130: status line is rarely needed -> page footer (the top stays free for tabs)
+  setHTMLCached("sysinfo", [
+    o.owner && `オーナー: ${esc(o.owner)}`, `認証: ${esc(o.auth)}`,
     `<a href="#costs" data-tab="costs" style="color:inherit" title="定額プランなので実費ではなく、API 従量だった場合の換算額（トークンのチューニング用）">API 換算 本日 ${usd(o.spent)}</a>`,
     `更新 <span id="clock"></span> (${esc(o.timezone)})`,
     o.has_samples && `<label style="cursor:pointer"><input type="checkbox" id="samples-toggle" ${state.samples ? "checked" : ""}> サンプルを表示</label>`,
@@ -1061,6 +1065,45 @@ async function renderGuide() {
     if (references.length) showReference(references[0].name);
   } catch (e) { document.getElementById("guide").innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
 }
+// Personal: always shown; lists the personal tabs that are enabled, otherwise explains how to add one.
+function renderPersonal() {
+  const o = state.overview || {}, f = o.features || {};
+  const on = TABS.filter(t => t.feature && f[t.feature]);
+  document.getElementById("main").innerHTML = `<div class="card"><h2>Personal</h2>
+    <div class="md">個人ごとに好きな機能を持たせる場所です。config/fleet.yaml で機能を有効にすると、このグループにタブが増えます。</div>
+    ${on.length ? `<div class="row" style="margin-top:10px">${on.map(t => `<button class="btn" data-tab="${t.id}">${esc(t.label)}</button>`).join("")}</div>`
+      : '<div class="empty" style="text-align:left">まだ何も有効になっていません（使い方タブの「Personal」を参照）。</div>'}</div>`;
+}
+
+// Inline sub-task entry right under the clicked task row (memo feel: no dialog).
+// Enter = add, Esc / empty blur = close.
+function openChildInput(tr, row) {
+  if (!tr) return;
+  document.querySelectorAll("tr.child-input").forEach(x => x.remove());
+  const cols = tr.children.length, pad = ((row.depth || 0) * 14) + 28;
+  const holder = document.createElement("tr");
+  holder.className = "child-input";
+  holder.innerHTML = `<td colspan="${cols}" style="padding:4px 8px 6px ${pad}px">
+    <span class="muted">└ </span><input placeholder="サブタスク（Enter で追加・Esc で閉じる）" style="width:min(520px,80%)"></td>`;
+  tr.after(holder);
+  const inp = holder.querySelector("input");
+  holder.addEventListener("click", e => e.stopPropagation());  // don't open the task detail
+  const close = () => holder.remove();
+  inp.addEventListener("keydown", async e => {
+    if (e.key === "Escape") { close(); return; }
+    if (e.key !== "Enter" || e.isComposing) return;   // isComposing: ignore Enter that confirms IME input
+    e.preventDefault();
+    const text = inp.value.trim(); if (!text) { close(); return; }
+    inp.disabled = true;
+    try {
+      await api("/api/note/addchild", { line: row.line, raw: row.raw, text });  // lands after the parent's last child
+      toast("サブタスクを追加しました"); refreshAfterTaskChange();
+    } catch (err) { toast(err.message); inp.disabled = false; inp.focus(); }
+  });
+  inp.addEventListener("blur", () => { if (!inp.value.trim() && !inp.disabled) setTimeout(close, 150); });
+  inp.focus();
+}
+
 // The API needs the token header, so fetch the PDF ourselves and hand the browser a blob URL.
 async function showReference(name) {
   const box = document.getElementById("ref-view"); if (!box) return;
@@ -2497,6 +2540,7 @@ async function render() {
   else if (tab.id === "agenda") renderAgenda();
   else if (tab.id === "devreq") renderDevreq();
   else if (tab.id === "overtime") renderOvertime();
+  else if (tab.id === "personal") renderPersonal();
   else if (tab.id === "credit") renderCredit();
   else if (tab.id === "rongo") renderRongo();
   else if (tab.id === "costs") renderCosts();
@@ -2751,9 +2795,7 @@ document.addEventListener("click", async ev => {
   if (t.dataset.notechild !== undefined) {
     ev.stopPropagation(); ev.preventDefault();
     const row = (state.taskRows || [])[Number(t.dataset.notechild)]; if (!row) return;
-    const text = prompt(`「${row.text || row.title}」の下に追加するサブタスク:`, ""); if (!text || !text.trim()) return;
-    try { await api("/api/note/addchild", { line: row.line, raw: row.raw, text }); toast("ノートにサブタスクを追加しました（インデントつき）"); refreshAfterTaskChange(); }
-    catch (e) { toast(e.message); }
+    openChildInput(t.closest("tr"), row);
     return;
   }
   if (t.id === "nt-add") {
