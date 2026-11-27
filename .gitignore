@@ -11,6 +11,19 @@ config/*.json
 agents/*/LOCAL.md
 agents/*/versions/
 
+# ---- Host-specific Docker settings ----
+compose.override.yaml
+
+# ---- Statements / personal documents: never commit, wherever they are dropped ----
+# (credit statements live in workspace/credit/, which is ignored below as well)
+*.pdf
+*.PDF
+*.csv
+*.CSV
+*.xlsx
+*.xls
+*.xlsm
+
 # ---- Runtime data: knowledge base, customer data, logs ----
 knowledge/*
 !knowledge/.gitkeep

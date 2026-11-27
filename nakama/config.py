@@ -79,6 +79,8 @@ class Fleet:
     decks: dict[str, Any] = field(default_factory=dict)  # recurring-meeting deck folders (Tensaku)
     scripts: list[Any] = field(default_factory=list)  # ops scripts runnable from the dashboard (nakama/scripts.py)
     meeting_prompts: list[Any] = field(default_factory=list)  # "take AI minutes" nudges around recurring meetings
+    credit: dict[str, Any] = field(default_factory=dict)  # credit card statement split tab (off by default)
+    rongo: dict[str, Any] = field(default_factory=dict)  # the Analects, one chapter a day (off by default)
 
 
 def _first_existing(*paths: Path) -> Path | None:
@@ -127,6 +129,8 @@ def load_fleet(path: Path | None = None) -> Fleet:
         decks=raw.get("decks") or {},
         scripts=raw.get("scripts") or [],
         meeting_prompts=raw.get("meeting_prompts") or [],
+        credit=raw.get("credit") or {},
+        rongo=raw.get("rongo") or {},
         timezone=raw.get("timezone", "UTC"),
         owner=raw.get("owner") or {},
         limits=raw.get("limits") or {},

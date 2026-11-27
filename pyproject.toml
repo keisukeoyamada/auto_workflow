@@ -10,6 +10,7 @@ dependencies = [
     "pyyaml>=6.0",
     "python-dotenv>=1.0",
     "tzdata>=2024.1",
+    "openpyxl>=3.1",  # credit tab: import past months from a hand-made workbook
 ]
 
 [project.optional-dependencies]
@@ -25,4 +26,4 @@ build-backend = "setuptools.build_meta"
 packages = ["nakama", "nakama.helpers"]
 
 [tool.setuptools.package-data]
-nakama = ["static/*.html"]
+nakama = ["static/*.html", "data/*.json", "data/*.md"]

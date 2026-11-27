@@ -34,9 +34,23 @@ def _job(name: str) -> None:
         log.exception("%s: unexpected failure", name)
 
 
+def _rongo_job() -> None:
+    from . import rongo
+
+    result = rongo.run_generation()
+    log.info("rongo: %s", result)
+
+
 def _add_agent_jobs(scheduler: BlockingScheduler) -> None:
     fleet = load_fleet()
     grace = int(fleet.limits.get("misfire_grace_seconds") or 3600)
+    rongo_cfg = fleet.rongo or {}
+    if rongo_cfg.get("enabled"):  # not an agent: one short Claude call per chapter, a few chapters ahead
+        from .rongo import DEFAULT_SCHEDULE
+
+        scheduler.add_job(_rongo_job, CronTrigger.from_crontab(str(rongo_cfg.get("schedule") or DEFAULT_SCHEDULE),
+                                                               timezone=fleet.timezone),
+                          id="rongo#daily", max_instances=1, coalesce=True, misfire_grace_time=grace)
     for name, spec in fleet.agents.items():
         if not spec.enabled:
             continue

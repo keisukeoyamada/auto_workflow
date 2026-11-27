@@ -1,0 +1,14 @@
+# Machine-specific settings for one host (e.g. a home NAS). Copy to compose.override.yaml (git-ignored);
+# `docker compose` merges it into compose.yaml automatically. Keep only the parts you need.
+services:
+  nakama:
+    # Synology: shared folders carry ACLs that grant write access to the "administrators" group (GID 101),
+    # not to the container user. Adding the group lets the container write logs/ and workspace/.
+    # group_add:
+    #   - "101"
+
+    # Open the dashboard to the LAN / the NAS's own Tailscale on another port (compose.yaml keeps 8765 local).
+    # Set NAKAMA_UI_PASSWORD and NAKAMA_UI_ALLOW_HOSTS in .env when you do. A gateway that forwards to
+    # this port (e.g. a Tailscale container sharing apps with family) reaches it as host.docker.internal.
+    ports:
+      - "8766:8765"
