@@ -227,3 +227,14 @@ def test_exclude_row_from_split_but_not_from_bill(cfg):
     assert v["statement_total"] == 3714 and not any("請求額" in p for p in v["problems"])
     assert v["unchecked"] == 2  # an excluded row needs no check
     assert "除外" in credit.export_csv("202611")["csv"]
+
+
+def test_months_list_has_figures_for_each_month(cfg):
+    credit.import_csv("book.xlsx", base64.b64encode(_workbook()).decode(), now=datetime(2026, 11, 27))
+    credit.import_csv("activity.csv", _b64(CSV_ACTIVITY), now=datetime(2026, 11, 27))
+    credit.set_meta("202611", balance="500")
+    ms = {m["month"]: m for m in credit.months()["months"]}
+    assert list(ms) == ["202611", "202609"]  # newest first
+    assert ms["202609"]["closed"] and ms["202609"]["billed"] == ms["202609"]["statement_total"] == 5040
+    assert ms["202611"]["balance"] == 500 and ms["202611"]["deposit"]["shared"] == 3714 - 500
+    assert ms["202611"]["excluded"] == {"count": 0, "amount": 0}
