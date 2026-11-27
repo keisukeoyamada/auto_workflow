@@ -17,39 +17,17 @@ def cfg(tmp_path, monkeypatch):
     return fleet
 
 
-def _fake_fetch(url):
-    slug = url.rsplit("/", 1)[1]
-    n = 3 if slug == "xue-er" else 1
-    return {"title": slug, "fulltext": [f"{slug} 子曰 第{i}章" for i in range(1, n + 1)] + [""]}
-
-
-def _import(cfg):
-    return rongo.import_source(fetch=_fake_fetch, pause=0)
-
-
-def test_import_numbers_books_and_chapters(cfg):
-    assert _import(cfg) == {"chapters": 3 + 19, "books": 20}
+def test_bundled_text_has_all_books_and_chapters():
     chs = rongo.chapters()
-    assert [c["id"] for c in chs[:4]] == ["01-01", "01-02", "01-03", "02-01"]
-    assert chs[0]["book_name"] == "学而" and chs[-1]["book_name"] == "堯曰" and chs[-1]["id"] == "20-01"
-
-
-def test_import_is_all_or_nothing_and_strict(cfg):
-    def broken(url):
-        return {"unexpected": True} if url.endswith("ba-yi") else _fake_fetch(url)
-
-    with pytest.raises(ValueError, match="想定と違います"):
-        rongo.import_source(fetch=broken, pause=0)
-    assert rongo.chapters() == []
-
-    with pytest.raises(ValueError, match="エラーを返しました"):
-        rongo.import_source(fetch=lambda url: {"error": {"code": "ERR_REQUEST_LIMIT", "description": "limit"}}, pause=0)
+    assert len(chs) == 512
+    assert [c["id"] for c in chs[:2]] == ["01-01", "01-02"] and chs[0]["text"].startswith("子曰：“学而时习之")
+    assert chs[0]["book_name"] == "学而" and chs[-1]["book_name"] == "堯曰" and chs[-1]["id"] == "20-03"
+    assert sum(1 for c in chs if c["book"] == 1) == 16
 
 
 def test_progress_streak_and_next_chapter(cfg):
-    _import(cfg)
     s = rongo.status(today=date(2026, 11, 27))
-    assert (s["read"], s["total"], s["next_id"], s["current"]["id"]) == (0, 22, "01-01", "01-01")
+    assert (s["read"], s["total"], s["next_id"], s["current"]["id"]) == (0, 512, "01-01", "01-01")
     rongo.mark_read("01-01", today=date(2026, 11, 25))
     rongo.mark_read("01-02", today=date(2026, 11, 26))
     s = rongo.status(today=date(2026, 11, 27))
@@ -59,13 +37,12 @@ def test_progress_streak_and_next_chapter(cfg):
     assert s["streak"] == 3 and s["read"] == 3 and s["books"][0]["chapters"][2]["read"]
     rongo.mark_read("01-03", read=False)
     assert rongo.status(today=date(2026, 11, 27))["streak"] == 2
-    assert rongo.status("02-01")["current"]["id"] == "02-01"
+    assert rongo.status("02-01")["current"]["id"] == "02-01" and rongo.status("02-01")["prev_id"] == "01-16"
     with pytest.raises(ValueError):
         rongo.mark_read("99-99")
 
 
 def test_generation_writes_notes_ahead(cfg):
-    _import(cfg)
     rongo.mark_read("01-01", today=date(2026, 11, 27))
     asked = []
 
@@ -92,6 +69,7 @@ def test_generation_writes_notes_ahead(cfg):
 
 def test_disabled(cfg):
     cfg.rongo = {"enabled": False}
-    assert rongo.status() == {"enabled": False, "schedule": rongo.DEFAULT_SCHEDULE, "generation": {}}
+    s = rongo.status()
+    assert (s["enabled"], s["schedule"], s["generation"]) == (False, rongo.DEFAULT_SCHEDULE, {}) and "current" not in s
     with pytest.raises(PermissionError):
-        rongo.import_source(fetch=_fake_fetch, pause=0)
+        rongo.mark_read("01-01")

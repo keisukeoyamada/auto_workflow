@@ -24,4 +24,4 @@ build-backend = "setuptools.build_meta"
 packages = ["nakama", "nakama.helpers"]
 
 [tool.setuptools.package-data]
-nakama = ["static/*.html"]
+nakama = ["static/*.html", "data/*.json", "data/*.md"]

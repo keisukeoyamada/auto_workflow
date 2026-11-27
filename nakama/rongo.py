@@ -1,7 +1,7 @@
 """The Analects, one chapter a day (dashboard tab 「論語」). Optional; off unless fleet.yaml `rongo.enabled`.
 
-- The original text (public domain, about 500 chapters, ~50 KB) is downloaded once from the Chinese Text
-  Project API into workspace/rongo/source.json. Nothing else is sent anywhere for that.
+- The original text (public domain, 20 books / 512 chapters, simplified characters) ships with the app in
+  nakama/data/lunyu.json (from the chinese-poetry project, MIT; see nakama/data/README.md). No download.
 - Each morning Claude writes the next few chapters' 書き下し文 / 現代語訳 / 語句 / 教訓 / 今日の問い into
   workspace/rongo/notes/<id>.md (one short call per chapter, no tools). Only the chapter text is sent.
 - What you have read is kept in workspace/rongo/progress.json (all of workspace/ is git-ignored).
@@ -13,10 +13,9 @@ import json
 import logging
 import re
 import threading
-import time
-import urllib.error
-import urllib.request
 from datetime import date, datetime, timedelta
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 from zoneinfo import ZoneInfo
 
@@ -25,15 +24,11 @@ from .config import ROOT, WORKSPACE_DIR, load_fleet
 log = logging.getLogger(__name__)
 
 DIR = WORKSPACE_DIR / "rongo"
-API = "https://api.ctext.org/gettext?urn=ctp:analects/"
-SOURCE_LABEL = "Chinese Text Project（ctext.org）"
-# (ctext slug, 篇名)
-BOOKS = [
-    ("xue-er", "学而"), ("wei-zheng", "為政"), ("ba-yi", "八佾"), ("li-ren", "里仁"), ("gong-ye-chang", "公冶長"),
-    ("yong-ye", "雍也"), ("shu-er", "述而"), ("tai-bo", "泰伯"), ("zi-han", "子罕"), ("xiang-dang", "郷党"),
-    ("xian-jin", "先進"), ("yan-yuan", "顔淵"), ("zi-lu", "子路"), ("xian-wen", "憲問"), ("wei-ling-gong", "衛霊公"),
-    ("ji-shi", "季氏"), ("yang-huo", "陽貨"), ("wei-zi", "微子"), ("zi-zhang", "子張"), ("yao-yue", "堯曰"),
-]
+DATA_FILE = Path(__file__).with_name("data") / "lunyu.json"
+SOURCE_LABEL = "chinese-poetry（GitHub, MIT）の lunyu.json（簡体字）"
+# 篇名 in Japanese, in the order of the data file
+BOOKS = ["学而", "為政", "八佾", "里仁", "公冶長", "雍也", "述而", "泰伯", "子罕", "郷党",
+         "先進", "顔淵", "子路", "憲問", "衛霊公", "季氏", "陽貨", "微子", "子張", "堯曰"]
 DEFAULT_MODEL = "claude-sonnet-5-5"
 DEFAULT_SCHEDULE = "15 5 * * *"
 SECTIONS = ("書き下し文", "現代語訳", "語句", "教訓", "今日の問い")
@@ -45,6 +40,7 @@ SYSTEM_PROMPT = (
     "- 語句: 難しい語や人物を 2〜4 個、「- 語: 意味」の形で 1 行ずつ。\n"
     "- 教訓: 2〜3 文。仕事・家庭など今の生活でどう生かせるか。\n"
     "- 今日の問い: 自分に問いかける短い質問を 1 つ。\n"
+    "原文は簡体字で渡すが、書き下し文・語句は日本の漢字（常用漢字）で書く。"
     "解釈が分かれる章は、その旨と主な解釈を短く添える。原文にないことを断定しない。"
 )
 
@@ -84,8 +80,21 @@ def _write_json(name: str, data: Any) -> None:
     tmp.replace(DIR / name)
 
 
+@lru_cache(maxsize=1)
+def _bundled() -> tuple[dict[str, Any], ...]:
+    data = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+    if not isinstance(data, list) or len(data) != len(BOOKS):
+        raise ValueError(f"{DATA_FILE.name}: 20 篇の配列ではありません")
+    out = []
+    for i, (book, name) in enumerate(zip(data, BOOKS), start=1):
+        texts = [t.strip() for t in book.get("paragraphs") or [] if isinstance(t, str) and t.strip()]
+        out += [{"id": f"{i:02d}-{n:02d}", "book": i, "book_name": name, "no": n, "text": t}
+                for n, t in enumerate(texts, start=1)]
+    return tuple(out)
+
+
 def chapters() -> list[dict[str, Any]]:
-    return list(_read_json("source.json", {}).get("chapters") or [])
+    return list(_bundled())
 
 
 def _note_path(cid: str):
@@ -96,52 +105,6 @@ def _note_path(cid: str):
 
 def _today() -> date:
     return datetime.now(ZoneInfo(load_fleet().timezone)).date()
-
-
-# ---------- import (once) ----------
-
-def _http_json(url: str) -> Any:
-    req = urllib.request.Request(url, headers={"User-Agent": "nakama-rongo/1 (personal use)"})
-    with urllib.request.urlopen(req, timeout=30) as res:  # noqa: S310 - fixed https host
-        return json.loads(res.read().decode("utf-8"))
-
-
-def _paragraphs(data: Any, slug: str) -> list[str]:
-    """The chapter texts of one book from a gettext response. Strict: anything unexpected is an error."""
-    if isinstance(data, dict) and data.get("error"):
-        err = data["error"]
-        raise ValueError(f"ctext がエラーを返しました（{slug}）: {err.get('description') if isinstance(err, dict) else err}")
-    items = data.get("fulltext") if isinstance(data, dict) else None
-    if not isinstance(items, list) or not items:
-        raise ValueError(f"ctext の応答の形が想定と違います（{slug}）: {json.dumps(data, ensure_ascii=False)[:200]}")
-    out = []
-    for x in items:
-        text = x if isinstance(x, str) else x.get("text") if isinstance(x, dict) else None
-        if not isinstance(text, str):
-            raise ValueError(f"ctext の応答の形が想定と違います（{slug}）: {json.dumps(x, ensure_ascii=False)[:200]}")
-        if text.strip():
-            out.append(text.strip())
-    return out
-
-
-def import_source(fetch: Callable[[str], Any] | None = None, pause: float = 1.0) -> dict[str, Any]:
-    """Download all 20 books once. All or nothing: a failure saves nothing."""
-    _require_enabled()
-    fetch = fetch or _http_json
-    found: list[dict[str, Any]] = []
-    for i, (slug, name) in enumerate(BOOKS, start=1):
-        try:
-            texts = _paragraphs(fetch(API + slug), slug)
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            raise ValueError(f"原文を取得できませんでした（{name}）: {exc}") from exc
-        found += [{"id": f"{i:02d}-{n:02d}", "book": i, "book_name": name, "no": n, "text": t}
-                  for n, t in enumerate(texts, start=1)]
-        if pause and i < len(BOOKS):
-            time.sleep(pause)  # be polite to a free service
-    with _lock:
-        _write_json("source.json", {"source": SOURCE_LABEL, "fetched_at": datetime.now().isoformat(timespec="seconds"),
-                                    "chapters": found})
-    return {"chapters": len(found), "books": len(BOOKS)}
 
 
 # ---------- reading progress ----------
@@ -182,13 +145,14 @@ def _chapter_view(c: dict[str, Any], done: dict[str, str]) -> dict[str, Any]:
 
 def status(cid: str = "", today: date | None = None) -> dict[str, Any]:
     cfg = config()
-    base = {"enabled": bool(cfg.get("enabled")), "schedule": str(cfg.get("schedule") or DEFAULT_SCHEDULE),
+    from . import cronja
+
+    schedule = str(cfg.get("schedule") or DEFAULT_SCHEDULE)
+    base = {"enabled": bool(cfg.get("enabled")), "schedule": schedule, "schedule_ja": cronja.describe(schedule),
             "generation": _read_json("generation.json", {})}
     if not base["enabled"]:
         return base
     chs = chapters()
-    if not chs:
-        return base | {"imported": False, "total": 0}
     done = _progress()
     today = today or _today()
     ids = [c["id"] for c in chs]
@@ -197,12 +161,12 @@ def status(cid: str = "", today: date | None = None) -> dict[str, Any]:
     current = current or chs[-1]
     i = ids.index(current["id"])
     books = []
-    for no, (_, name) in enumerate(BOOKS, start=1):
+    for no, name in enumerate(BOOKS, start=1):
         in_book = [c for c in chs if c["book"] == no]
         books.append({"no": no, "name": name, "total": len(in_book),
                       "chapters": [{"id": c["id"], "no": c["no"], "read": c["id"] in done} for c in in_book]})
     return base | {
-        "imported": True, "source": _read_json("source.json", {}).get("source", SOURCE_LABEL),
+        "source": SOURCE_LABEL,
         "total": len(chs), "read": sum(1 for x in ids if x in done), "streak": _streak(done, today),
         "read_today": sum(1 for v in done.values() if v == today.isoformat()),
         "next_id": nxt["id"] if nxt else None, "current": _chapter_view(current, done),
@@ -285,7 +249,7 @@ def upcoming(n: int | None = None) -> list[str]:
 
 def run_generation(ids: list[str] | None = None, ask: Ask | None = None) -> dict[str, Any]:
     """Blocking entry point for the scheduler and the dashboard; one run at a time, result in generation.json."""
-    if not enabled() or not chapters():
+    if not enabled():
         return {"skipped": True}
     if not _gen_lock.acquire(blocking=False):
         return {"skipped": True, "reason": "running"}
@@ -307,8 +271,6 @@ def run_generation(ids: list[str] | None = None, ask: Ask | None = None) -> dict
 def start_generation(cid: str = "") -> dict[str, Any]:
     """Dashboard button: make the explanation for this chapter (and the next ones) in the background."""
     _require_enabled()
-    if not chapters():
-        raise ValueError("先に原文を取り込んでください")
     ids = ([cid] if cid else []) + [x for x in upcoming() if x != cid]
     if cid:
         _note_path(cid)
