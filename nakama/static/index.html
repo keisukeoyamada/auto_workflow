@@ -207,6 +207,17 @@
   input, select { padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); font: inherit; }
   pre.log { background: var(--code); padding: 12px; border-radius: 8px; overflow: auto; max-height: 75vh; font-size: 12px; margin: 0; }
   .empty { color: var(--muted); padding: 20px; text-align: center; }
+  /* rongo (the Analects) */
+  .rg-text { font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif CJK JP", "Noto Serif JP", serif;
+             font-size: 22px; line-height: 1.9; letter-spacing: .04em; margin: 6px 0 14px; }
+  .rg-books { display: grid; gap: 6px; }
+  .rg-book { display: grid; grid-template-columns: 5.5em 1fr 4.5em; gap: 8px; align-items: center; font-size: 13px; }
+  .rg-cells { display: flex; flex-wrap: wrap; gap: 3px; }
+  .rg-cell { width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--line); background: var(--panel);
+             font-size: 9px; line-height: 16px; text-align: center; color: var(--muted); cursor: pointer; padding: 0; }
+  .rg-cell.read { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .rg-cell.cur { outline: 2px solid var(--accent); outline-offset: 1px; }
+  @media (max-width: 760px) { .rg-text { font-size: 19px; } .rg-book { grid-template-columns: 4.5em 1fr; } .rg-book .cnt { display: none; } }
   /* credit statement split */
   .crtable td, .crtable th { padding: 5px 6px; font-size: 13px; }
   .crtable td.num, .crtable th.num { text-align: right; white-space: nowrap; }
@@ -285,6 +296,7 @@ const TABS = [
   { id: "note", label: "ノート", desc: "手書きの ToDo ノート（Obsidian と同じファイル）を自由に編集。Tab で入れ子、Ctrl+Enter で □/■ 切り替え、Ctrl+S で保存。" },
   { id: "overtime", label: "残業", desc: "残業の記録（開始・終了・理由）と申請文のコピー。平日 18:00 以降、今日の記録が無ければエスカレ欄と Slack/Teams でお知らせ。" },
   { id: "credit", label: "クレジット精算", feature: "credit", desc: "カード明細の CSV を取り込み、行ごとに誰が負担するかを振り分けて、各自と共同からの入金額を出す（fleet.yaml の credit で有効化）。" },
+  { id: "rongo", label: "論語", feature: "rongo", desc: "論語を 1 日 1 章。原文・書き下し文・現代語訳・教訓・今日の問いを読んで「読んだ」を押す。全体の進み具合と連続日数も記録（fleet.yaml の rongo で有効化）。" },
   { id: "routine", label: "ルーティン", desc: "定常作業を営業日ベースで管理（Excel の作業管理表と同じ見え方）。状態・作業メモ・祝日一覧もここで。" },
   { id: "memos", label: "メモ", desc: "走り書きしたメモと、Kikitori の振り分け提案。ボタンを押したものだけが実行される（📋 起票 draft / 🗓️ 勤怠 / 📚 変更依頼 / 📝 保管）。" },
   { id: "kihyo", label: "起票", desc: "議事メモ → Planner 起票（Kihyo）の状態・履歴・手動起票（検証してから承認）・これまでの経緯。" },
@@ -307,7 +319,7 @@ const GROUPS = [
   { id: "g-rec", label: "記録", tabs: ["reports", "knowledge", "costs", "log"] },
   // Personal: optional tabs that each instance turns on in fleet.yaml (home NAS: credit; work PC: e.g. career).
   // A group whose tabs are all off is not shown at all.
-  { id: "g-personal", label: "Personal", tabs: ["credit"] },
+  { id: "g-personal", label: "Personal", tabs: ["credit", "rongo"] },
   { id: "g-sys", label: "設定", tabs: ["settings", "devreq", "guide"] },
 ];
 const groupOf = tabId => GROUPS.find(g => g.tabs.includes(tabId)) || GROUPS[0];
@@ -1179,6 +1191,81 @@ async function renderOvertime() {
         || '<tr><td colspan="5">記録なし</td></tr>'}</table></div></div>`;
 }
 
+// ---------- rongo: the Analects, one chapter a day ----------
+async function renderRongo(id) {
+  const main = document.getElementById("main");
+  let r;
+  try { r = await api("/api/rongo" + (id ? "?id=" + encodeURIComponent(id) : "")); }
+  catch (e) { main.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  state.rg = r;
+  if (!r.enabled) {
+    main.innerHTML = `<div class="card"><h2>論語は無効です</h2><div class="md">config/fleet.yaml に <code>rongo:</code> を追加して
+      <code>enabled: true</code> にすると使えます（書き方は config/fleet.example.yaml）。</div></div>`;
+    return;
+  }
+  if (!r.imported) {
+    main.innerHTML = `<div class="card"><h2>はじめに: 原文を取り込む</h2>
+      <p>論語の原文（全 20 篇・約 500 章・50KB ほど。著作権の切れた古典）を Chinese Text Project からこの NAS に一度だけ取り込みます。20 秒ほどかかります。</p>
+      <button class="btn primary" id="rg-import">原文を取り込む</button></div>`;
+    return;
+  }
+  const c = r.current, g = r.generation || {};
+  const pct = r.total ? Math.round(r.read / r.total * 100) : 0;
+  const isNext = c.id === r.next_id;
+  const note = c.note ? `<div class="md">${renderMarkdown(c.note)}</div>`
+    : `<div class="empty" style="text-align:left;padding:8px 0">解説はまだありません。毎朝（${esc(r.schedule)}）、この先の章の分をまとめて作ります。
+        ${g.running ? "<br>いま作成中です…" : `<br><button class="btn" id="rg-gen" data-id="${esc(c.id)}" style="margin-top:6px">今すぐ作る</button>`}</div>`;
+  const genInfo = g.error ? `<div class="cal-legend" style="color:var(--bad)">解説の作成に失敗: ${esc(g.error)}（${esc((g.at || "").replace("T", " "))}）</div>` : "";
+  main.innerHTML = `
+    <div class="card"><h2>${esc(c.book_name)}篇 第${c.no}章 <span class="pill">${esc(c.id)}</span>
+        ${c.read_on ? `<span class="pill ok">${esc(c.read_on)} に読了</span>` : isNext ? '<span class="pill open">今日の 1 章</span>' : ""}
+        <span class="right">${r.prev_id ? `<button class="btn" data-rgid="${esc(r.prev_id)}">◀ 前</button>` : ""}
+          ${r.following_id ? `<button class="btn" data-rgid="${esc(r.following_id)}">次 ▶</button>` : ""}
+          ${!isNext && r.next_id ? `<button class="btn" data-rgid="">今日の章へ</button>` : ""}</span></h2>
+      <div class="rg-text">${esc(c.text)}</div>
+      ${note}${genInfo}
+      <div class="row" style="margin-top:12px">${c.read_on
+        ? `<button class="btn" id="rg-unread" data-id="${esc(c.id)}">未読に戻す</button>`
+        : `<button class="btn primary" id="rg-read" data-id="${esc(c.id)}">読んだ</button>`}</div></div>
+    <div class="tiles">
+      <div class="tile"><div class="label">読んだ章</div><div class="value">${r.read} / ${r.total}</div>
+        <div class="meter"><div style="width:${pct}%"></div></div><div class="cal-legend" style="margin:4px 0 0">${pct}%</div></div>
+      <div class="tile"><div class="label">連続日数</div><div class="value">${r.streak} 日</div>
+        <div class="cal-legend" style="margin:4px 0 0">${r.read_today ? `今日 ${r.read_today} 章読みました` : "今日はまだです"}</div></div>
+      <div class="tile"><div class="label">解説が準備済みの未読</div><div class="value">${r.notes_ready} 章</div></div>
+    </div>
+    <div class="card"><h2>篇ごとの進み具合</h2><div class="rg-books">${r.books.map(b => {
+      const n = b.chapters.filter(x => x.read).length;
+      return `<div class="rg-book"><span>${esc(b.name)}</span><div class="rg-cells">${b.chapters.map(x =>
+        `<button class="rg-cell ${x.read ? "read" : ""} ${x.id === c.id ? "cur" : ""}" data-rgid="${esc(x.id)}" title="${esc(b.name)} 第${x.no}章">${x.no}</button>`).join("")}</div>
+        <span class="cnt cal-legend" style="margin:0">${n} / ${b.total}</span></div>`;
+    }).join("")}</div>
+      <div class="cal-legend">マスを押すとその章を開きます（緑 = 読んだ）。原文: ${esc(r.source)}。書き下し文・現代語訳・教訓は Claude が作ったもので、誤りがあり得ます。</div></div>`;
+  if (g.running) { clearTimeout(state.rgPoll); state.rgPoll = setTimeout(() => { if (state.tab === "rongo") renderRongo(c.id); }, 5000); }
+}
+document.addEventListener("click", async ev => {
+  const t = ev.target.closest("[data-rgid],#rg-import,#rg-read,#rg-unread,#rg-gen");
+  if (!t) return;
+  if (t.dataset.rgid !== undefined) { await renderRongo(t.dataset.rgid); window.scrollTo(0, 0); return; }
+  if (t.id === "rg-import") {
+    t.disabled = true; t.textContent = "取り込み中…（20 秒ほど）";
+    try { const r = await api("/api/rongo/import", {}); toast(`原文を取り込みました（${r.books} 篇・${r.chapters} 章）`); renderRongo(); }
+    catch (e) { toast(e.message); t.disabled = false; t.textContent = "原文を取り込む"; }
+    return;
+  }
+  if (t.id === "rg-read" || t.id === "rg-unread") {
+    try {
+      await api("/api/rongo/read", { id: t.dataset.id, read: t.id === "rg-read" });
+      if (t.id === "rg-read") { toast("読みました。お疲れさまでした"); renderRongo(t.dataset.id); } else renderRongo(t.dataset.id);
+    } catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.id === "rg-gen") {
+    try { await api("/api/rongo/generate", { id: t.dataset.id }); toast("解説を作っています（1 章 20〜40 秒ほど）"); setTimeout(() => renderRongo(t.dataset.id), 1500); }
+    catch (e) { toast(e.message); }
+  }
+});
+
 // ---------- credit card statement split ----------
 const yen = v => v === null || v === undefined ? "—" : Number(v).toLocaleString("ja-JP");
 function crSplitLabel(k) {
@@ -1779,6 +1866,7 @@ async function render() {
   else if (tab.id === "devreq") renderDevreq();
   else if (tab.id === "overtime") renderOvertime();
   else if (tab.id === "credit") renderCredit();
+  else if (tab.id === "rongo") renderRongo();
   else if (tab.id === "costs") renderCosts();
   else renderKind(tab);
 }
