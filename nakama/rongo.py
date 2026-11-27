@@ -4,7 +4,7 @@
   nakama/data/lunyu.json (from the chinese-poetry project, MIT; see nakama/data/README.md). No download.
 - Each morning Claude writes the next few chapters' 書き下し文 / 現代語訳 / 語句 / 教訓 / 今日の問い into
   workspace/rongo/notes/<id>.md (one short call per chapter, no tools). Only the chapter text is sent.
-- What you have read is kept in workspace/rongo/progress.json (all of workspace/ is git-ignored).
+- What you have read and starred is kept in workspace/rongo/progress.json (all of workspace/ is git-ignored).
 """
 from __future__ import annotations
 
@@ -109,23 +109,46 @@ def _today() -> date:
 
 # ---------- reading progress ----------
 
-def _progress() -> dict[str, str]:
+def _state() -> dict[str, dict[str, str]]:
+    """progress.json = {"read": {id: date}, "fav": {id: date}}."""
     data = _read_json("progress.json", {})
-    return dict(data.get("read") or {}) if isinstance(data, dict) else {}
+    data = data if isinstance(data, dict) else {}
+    return {k: dict(data.get(k) or {}) for k in ("read", "fav")}
 
 
-def mark_read(cid: str, read: bool = True, today: date | None = None) -> dict[str, Any]:
+def _progress() -> dict[str, str]:
+    return _state()["read"]
+
+
+def _toggle(kind: str, cid: str, on: bool, today: date | None) -> dict[str, Any]:
     _require_enabled()
     if cid not in {c["id"] for c in chapters()}:
         raise ValueError("その章はありません")
     with _lock:
-        done = _progress()
-        if read:
-            done.setdefault(cid, (today or _today()).isoformat())
+        st = _state()
+        if on:
+            st[kind].setdefault(cid, (today or _today()).isoformat())
         else:
-            done.pop(cid, None)
-        _write_json("progress.json", {"read": done})
+            st[kind].pop(cid, None)
+        _write_json("progress.json", st)
     return status(cid)
+
+
+def mark_read(cid: str, read: bool = True, today: date | None = None) -> dict[str, Any]:
+    return _toggle("read", cid, read, today)
+
+
+def set_fav(cid: str, fav: bool = True, today: date | None = None) -> dict[str, Any]:
+    """Star a chapter to come back to it (independent of reading)."""
+    return _toggle("fav", cid, fav, today)
+
+
+def _section(note: str | None, title: str) -> str:
+    """The text under '## <title>' in a note (for the favourites list)."""
+    if not note:
+        return ""
+    m = re.search(rf"^##\s*{re.escape(title)}\s*\n(.*?)(?=^##\s|\Z)", note, re.S | re.M)
+    return m.group(1).strip() if m else ""
 
 
 def _streak(done: dict[str, str], today: date) -> int:
@@ -138,9 +161,10 @@ def _streak(done: dict[str, str], today: date) -> int:
     return n
 
 
-def _chapter_view(c: dict[str, Any], done: dict[str, str]) -> dict[str, Any]:
+def _chapter_view(c: dict[str, Any], done: dict[str, str], fav: dict[str, str]) -> dict[str, Any]:
     path = _note_path(c["id"])
-    return c | {"read_on": done.get(c["id"]), "note": path.read_text(encoding="utf-8") if path.exists() else None}
+    return c | {"read_on": done.get(c["id"]), "fav_on": fav.get(c["id"]),
+                "note": path.read_text(encoding="utf-8") if path.exists() else None}
 
 
 def status(cid: str = "", today: date | None = None) -> dict[str, Any]:
@@ -153,7 +177,8 @@ def status(cid: str = "", today: date | None = None) -> dict[str, Any]:
     if not base["enabled"]:
         return base
     chs = chapters()
-    done = _progress()
+    st = _state()
+    done, fav = st["read"], st["fav"]
     today = today or _today()
     ids = [c["id"] for c in chs]
     nxt = next((c for c in chs if c["id"] not in done), None)
@@ -164,15 +189,24 @@ def status(cid: str = "", today: date | None = None) -> dict[str, Any]:
     for no, name in enumerate(BOOKS, start=1):
         in_book = [c for c in chs if c["book"] == no]
         books.append({"no": no, "name": name, "total": len(in_book),
-                      "chapters": [{"id": c["id"], "no": c["no"], "read": c["id"] in done} for c in in_book]})
+                      "chapters": [{"id": c["id"], "no": c["no"], "read": c["id"] in done, "fav": c["id"] in fav}
+                                   for c in in_book]})
+    favorites = []
+    for c in chs:  # in the book's order
+        if c["id"] in fav:
+            path = _note_path(c["id"])
+            note = path.read_text(encoding="utf-8") if path.exists() else None
+            favorites.append({k: c[k] for k in ("id", "book_name", "no", "text")}
+                             | {"fav_on": fav[c["id"]], "translation": _section(note, "現代語訳"),
+                                "lesson": _section(note, "教訓")})
     return base | {
         "source": SOURCE_LABEL,
         "total": len(chs), "read": sum(1 for x in ids if x in done), "streak": _streak(done, today),
         "read_today": sum(1 for v in done.values() if v == today.isoformat()),
-        "next_id": nxt["id"] if nxt else None, "current": _chapter_view(current, done),
+        "next_id": nxt["id"] if nxt else None, "current": _chapter_view(current, done, fav),
         "prev_id": ids[i - 1] if i > 0 else None, "following_id": ids[i + 1] if i + 1 < len(ids) else None,
         "notes_ready": sum(1 for x in ids if x not in done and _note_path(x).exists()),
-        "books": books,
+        "books": books, "favorites": favorites,
     }
 
 

@@ -217,6 +217,13 @@
              font-size: 9px; line-height: 16px; text-align: center; color: var(--muted); cursor: pointer; padding: 0; }
   .rg-cell.read { background: var(--ok); border-color: var(--ok); color: #fff; }
   .rg-cell.cur { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .rg-cell.fav { box-shadow: inset 0 -3px 0 #e0a800; }
+  .rg-star { border: 0; background: none; cursor: pointer; font-size: 20px; line-height: 1; padding: 0 4px; color: var(--muted); vertical-align: -2px; }
+  .rg-star.on { color: #e0a800; }
+  .rg-fav { border-top: 1px solid var(--line); padding: 10px 0; }
+  .rg-fav:first-of-type { border-top: 0; }
+  .rg-fav.cur { background: var(--accent-soft); margin: 0 -14px; padding: 10px 14px; }
+  .rg-fav-text { font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif CJK JP", "Noto Serif JP", serif; font-size: 16px; margin: 4px 0; }
   @media (max-width: 760px) { .rg-text { font-size: 19px; } .rg-book { grid-template-columns: 4.5em 1fr; } .rg-book .cnt { display: none; } }
   /* credit statement split */
   .crtable td, .crtable th { padding: 5px 6px; font-size: 13px; }
@@ -1212,6 +1219,8 @@ async function renderRongo(id) {
   const genInfo = g.error ? `<div class="cal-legend" style="color:var(--bad)">解説の作成に失敗: ${esc(g.error)}（${esc((g.at || "").replace("T", " "))}）</div>` : "";
   main.innerHTML = `
     <div class="card"><h2>${esc(c.book_name)}篇 第${c.no}章 <span class="pill">${esc(c.id)}</span>
+        <button class="rg-star ${c.fav_on ? "on" : ""}" id="rg-fav" data-id="${esc(c.id)}" data-on="${c.fav_on ? "1" : ""}"
+          title="${c.fav_on ? "お気に入りから外す" : "お気に入りに入れる"}" aria-label="お気に入り">${c.fav_on ? "★" : "☆"}</button>
         ${c.read_on ? `<span class="pill ok">${esc(c.read_on)} に読了</span>` : isNext ? '<span class="pill open">今日の 1 章</span>' : ""}
         <span class="right">${r.prev_id ? `<button class="btn" data-rgid="${esc(r.prev_id)}">◀ 前</button>` : ""}
           ${r.following_id ? `<button class="btn" data-rgid="${esc(r.following_id)}">次 ▶</button>` : ""}
@@ -1228,18 +1237,41 @@ async function renderRongo(id) {
         <div class="cal-legend" style="margin:4px 0 0">${r.read_today ? `今日 ${r.read_today} 章読みました` : "今日はまだです"}</div></div>
       <div class="tile"><div class="label">解説が準備済みの未読</div><div class="value">${r.notes_ready} 章</div></div>
     </div>
+    ${rgFavorites(r, c)}
     <div class="card"><h2>篇ごとの進み具合</h2><div class="rg-books">${r.books.map(b => {
       const n = b.chapters.filter(x => x.read).length;
       return `<div class="rg-book"><span>${esc(b.name)}</span><div class="rg-cells">${b.chapters.map(x =>
-        `<button class="rg-cell ${x.read ? "read" : ""} ${x.id === c.id ? "cur" : ""}" data-rgid="${esc(x.id)}" title="${esc(b.name)} 第${x.no}章">${x.no}</button>`).join("")}</div>
+        `<button class="rg-cell ${x.read ? "read" : ""} ${x.fav ? "fav" : ""} ${x.id === c.id ? "cur" : ""}" data-rgid="${esc(x.id)}" title="${esc(b.name)} 第${x.no}章${x.fav ? "（お気に入り）" : ""}">${x.no}</button>`).join("")}</div>
         <span class="cnt cal-legend" style="margin:0">${n} / ${b.total}</span></div>`;
     }).join("")}</div>
-      <div class="cal-legend">マスを押すとその章を開きます（緑 = 読んだ）。原文: ${esc(r.source)}。書き下し文・現代語訳・教訓は Claude が作ったもので、誤りがあり得ます。</div></div>`;
+      <div class="cal-legend">マスを押すとその章を開きます（緑 = 読んだ、★の印 = お気に入り）。原文: ${esc(r.source)}。書き下し文・現代語訳・教訓は Claude が作ったもので、誤りがあり得ます。</div></div>`;
   if (g.running) { clearTimeout(state.rgPoll); state.rgPoll = setTimeout(() => { if (state.tab === "rongo") renderRongo(c.id); }, 5000); }
 }
+// Starred chapters with their translation and lesson, so they can be re-read at a glance.
+function rgFavorites(r, c) {
+  const favs = r.favorites || [];
+  const open = store.get("rgFavOpen") !== "0";
+  return `<details class="card" id="rg-favs" ${open ? "open" : ""}><summary style="cursor:pointer;font-weight:600">★ お気に入り（${favs.length}）</summary>
+    ${favs.length ? favs.map(f => `<div class="rg-fav ${f.id === c.id ? "cur" : ""}">
+        <div class="row" style="justify-content:space-between"><button class="crlink" data-rgid="${esc(f.id)}">${esc(f.book_name)}篇 第${f.no}章</button>
+          <span class="cal-legend" style="margin:0">${esc(f.fav_on)}</span></div>
+        <div class="rg-fav-text">${esc(f.text)}</div>
+        ${f.translation ? `<div>${esc(f.translation)}</div>` : '<div class="cal-legend">（解説はまだありません）</div>'}
+        ${f.lesson ? `<div class="cal-legend" style="margin:4px 0 0">教訓: ${esc(f.lesson)}</div>` : ""}</div>`).join("")
+      : '<div class="cal-legend">章のタイトルの横の ☆ を押すと、ここに集まります。</div>'}</details>`;
+}
+document.addEventListener("toggle", ev => {
+  if (ev.target.id === "rg-favs") store.set("rgFavOpen", ev.target.open ? "1" : "0");
+}, true);
 document.addEventListener("click", async ev => {
-  const t = ev.target.closest("[data-rgid],#rg-read,#rg-unread,#rg-gen");
+  const t = ev.target.closest("[data-rgid],#rg-read,#rg-unread,#rg-gen,#rg-fav");
   if (!t) return;
+  if (t.id === "rg-fav") {
+    const on = !t.dataset.on;
+    try { await api("/api/rongo/fav", { id: t.dataset.id, fav: on }); toast(on ? "お気に入りに入れました" : "お気に入りから外しました"); renderRongo(t.dataset.id); }
+    catch (e) { toast(e.message); }
+    return;
+  }
   if (t.dataset.rgid !== undefined) { await renderRongo(t.dataset.rgid); window.scrollTo(0, 0); return; }
   if (t.id === "rg-read" || t.id === "rg-unread") {
     try {

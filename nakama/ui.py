@@ -1744,6 +1744,9 @@ class _Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/rongo/read":
             from . import rongo
             self._dispatch(lambda: rongo.mark_read(str(body.get("id", "")), bool(body.get("read", True))))
+        elif url.path == "/api/rongo/fav":
+            from . import rongo
+            self._dispatch(lambda: rongo.set_fav(str(body.get("id", "")), bool(body.get("fav", True))))
         elif url.path == "/api/rongo/generate":
             from . import rongo
             self._dispatch(lambda: rongo.start_generation(str(body.get("id", ""))))
