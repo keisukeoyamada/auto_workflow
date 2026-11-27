@@ -229,8 +229,16 @@
   .c-purple { background: rgba(120, 80, 220, .16); } .c-gray { background: var(--code); }
   .tile input.crin { width: 100%; font-size: 18px; font-weight: 650; padding: 2px 6px; font-variant-numeric: tabular-nums; }
   .crbar { position: sticky; top: 0; z-index: 2; background: var(--panel); padding: 6px 0; }
+  .crtable .sm-only { display: none; }
   @media (max-width: 760px) { .crtable .sm-hide, .crbar .sm-hide { display: none; }
-    .crtable td.crsplit { white-space: normal; min-width: 7.5em; } .crtable td.crm { min-width: 7em; } }
+    .crtable input.sm-only { display: block; width: 100%; min-width: 0; margin-top: 4px; font-size: 16px; }
+    /* phone: each row = date / who / shop / check / amount, then the split buttons on a full-width line */
+    .crtable tr:first-child { display: none; }
+    .crtable tr { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; gap: 4px 8px;
+                  align-items: start; padding: 8px 0; border-bottom: 1px solid var(--line); }
+    .crtable td { border: 0; padding: 0; }
+    .crtable td.crm { min-width: 0; }
+    .crtable td.crsplit { grid-column: 1 / -1; white-space: normal; } }
   #toast { position: fixed; right: 16px; bottom: 16px; background: var(--text); color: var(--bg); padding: 10px 14px;
            border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 80vw; }
   #toast.show { opacity: .95; }
@@ -1248,7 +1256,8 @@ function crPaintTable() {
       <td class="sm-hide"><input type="checkbox" data-crsel="${esc(r.id)}" ${sel.has(r.id) ? "checked" : ""} ${lock}></td>
       <td style="white-space:nowrap">${esc(r.date.slice(5).replace("-", "/"))}</td>
       <td style="white-space:nowrap"><span class="crwho c-${color(r.holder_key)}" title="${esc(r.holder)}${r.card ? " / カード ･" + esc(r.card) : ""}">${esc(who(r))}</span>${r.card ? `<span class="crcard">･${esc(r.card)}</span>` : ""}</td>
-      <td class="crm"><span class="crwho c-${color(r.holder_key)}" style="padding:0 3px;margin-right:4px"></span>${esc(r.merchant)}</td>
+      <td class="crm"><span class="crwho c-${color(r.holder_key)}" style="padding:0 3px;margin-right:4px"></span>${esc(r.merchant)}
+        <input class="crmemo sm-only" data-crmemo="${esc(r.id)}" value="${esc(r.memo || "")}" placeholder="memo" ${lock}></td>
       <td style="text-align:center"><input type="checkbox" data-crcheck="${esc(r.id)}" ${r.checked ? "checked" : ""} ${lock} title="確認済み"></td>
       <td class="num">${yen(r.amount)}</td>
       <td class="crsplit">${btn(r, "shared", c.shared_label)} ${btn(r, "a", ma.label)} ${btn(r, "b", mb.label)} ${btn(r, "half", "折半")} ${btn(r, "custom", "指定")}
