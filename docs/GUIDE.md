@@ -197,6 +197,45 @@ status: new
 - 取り込んだ元のファイルは `workspace/credit/raw/` に残ります。リポジトリでは `*.csv` `*.pdf` `*.xlsx` も `.gitignore` しているので、どこに置いてもコミットされません。
 - NAS などで LAN に公開するときは、`.env` に `NAKAMA_UI_PASSWORD` と `NAKAMA_UI_ALLOW_HOSTS` を必ず設定してください。
 
+### Tailscale で共有する（家族などに画面を見せる・任意）
+
+画面を Tailscale 経由でほかの人（家族など）に使ってもらうための設定です。Tailscale 用のコンテナを横に 1 つ足し、それを相手に共有します（サイドカー）。
+
+- 相手に見えるのは、その Tailscale 端末 1 台だけです（例: `nakama`）。NAS 本体やほかのサービスは見えず、届きません。
+- 相手のアドレスは `https://<TS_HOSTNAME>.<tailnet名>.ts.net` になります。証明書付きの HTTPS で、ポート番号は要りません。
+- Nakama のコンテナは変更しません。外したくなったら、`tailscale` のサービスを消すだけです。
+- 自分だけで使う場合は不要です（ホストの Tailscale から入れば足ります）。
+
+手順（ホストで 1 回だけ）:
+
+1. Tailscale の管理画面の DNS ページで、**MagicDNS** と **HTTPS Certificates** を有効にする。
+2. 管理画面の Settings > Keys > **Generate auth key** で認証キーを作る。Reusable と Ephemeral はオフにし、Pre-approved はオンにする。
+3. `.env` に次を書く。
+   - `TS_AUTHKEY=<作ったキー>`
+   - `TS_HOSTNAME=<名前>`（URL の先頭になる名前。例: `credit`）
+   - `NAKAMA_UI_ALLOW_HOSTS` に `<名前>.<tailnet名>.ts.net,nakama` を足す
+4. 設定ファイルを用意する。
+   ```bash
+   cp config/tailscale-serve.example.json config/tailscale-serve.json
+   cp compose.override.example.yaml compose.override.yaml   # 既にあれば tailscale: の部分だけ足す
+   sudo docker compose up -d
+   ```
+5. 管理画面の Machines に `<名前>` が出たら、その「…」から次の 2 つを行う。
+   - **Disable key expiry**：これをしないと、期限が来たときに相手が入れなくなります。
+   - **Share**：招待リンクを相手に送る。相手は自分の Tailscale アカウントでリンクを開き、Accept を押す。
+6. 相手に `https://<名前>.<tailnet名>.ts.net/` と、画面のパスワード（`NAKAMA_UI_PASSWORD`）を伝える。
+
+さらに絞りたい場合: Tailscale のアクセスルールで、初期状態の `"src": ["*"]` を `"autogroup:member"` に変えます。そのうえで、相手には `{"action": "accept", "src": ["相手のメール"], "dst": ["<名前の端末のIP>:443"]}` だけを許可します。
+
+- サイドカーにはこの画面しか入っていないので、この設定は必須ではありません。
+- 書き換えるときは、`autogroup:member` の行を必ず残してください。消すと、自分のアクセスまで止まります。
+
+確認とやめ方:
+
+- 状態を見る: `sudo docker compose logs tailscale`
+- 共有をやめる: 管理画面の Machines > `<名前>` > Share から、相手を外す
+- サイドカーごと外す: `compose.override.yaml` から `tailscale:` を消して `sudo docker compose up -d --remove-orphans` を実行し、管理画面から端末を削除する
+
 ## 7. コネクタを追加する
 
 コネクタは「エージェントがどこからデータを取るか」の切り替えスイッチです。既定は全部 `local`（`workspace/` のファイル）です。

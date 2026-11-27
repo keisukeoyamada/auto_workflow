@@ -1,0 +1,33 @@
+# Machine-specific settings for one host (e.g. a home NAS). Copy to compose.override.yaml (git-ignored);
+# `docker compose` merges it into compose.yaml automatically. Keep only the parts you need.
+services:
+  nakama:
+    # Synology: shared folders carry ACLs that grant write access to the "administrators" group (GID 101),
+    # not to the container user. Adding the group lets the container write logs/ and workspace/.
+    # group_add:
+    #   - "101"
+
+    # Open the dashboard to the LAN / the NAS's own Tailscale on another port (compose.yaml keeps 8765 local).
+    # Set NAKAMA_UI_PASSWORD and NAKAMA_UI_ALLOW_HOSTS in .env when you do.
+    ports:
+      - "8766:8765"
+
+  # ---- Optional: share the dashboard with someone through Tailscale (sidecar) ----
+  # A separate Tailscale machine that only forwards https://<TS_HOSTNAME>.<tailnet>.ts.net to the
+  # dashboard. Share just this machine with the other person: they never see the host or its other
+  # services. The dashboard container itself is unchanged. See docs/GUIDE.md "Tailscale で共有する".
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: nakama-tailscale
+    restart: unless-stopped
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY}            # used once, on the first start; the login is kept in the state dir
+      TS_HOSTNAME: ${TS_HOSTNAME:-nakama}  # machine name in the tailnet = the first part of the URL
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: "true"                 # no /dev/net/tun needed (works on Synology)
+      TS_SERVE_CONFIG: /config/serve.json
+    volumes:
+      - ./tailscale-state:/var/lib/tailscale
+      - ./config/tailscale-serve.json:/config/serve.json:ro
+    depends_on:
+      - nakama

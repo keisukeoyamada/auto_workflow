@@ -11,6 +11,10 @@ config/*.json
 agents/*/LOCAL.md
 agents/*/versions/
 
+# ---- Host-specific Docker settings and the Tailscale sidecar's login state ----
+compose.override.yaml
+tailscale-state/
+
 # ---- Statements / personal documents: never commit, wherever they are dropped ----
 # (credit statements live in workspace/credit/, which is ignored below as well)
 *.pdf
