@@ -73,3 +73,27 @@ def test_disabled(cfg):
     assert (s["enabled"], s["schedule"], s["generation"]) == (False, rongo.DEFAULT_SCHEDULE, {}) and "current" not in s
     with pytest.raises(PermissionError):
         rongo.mark_read("01-01")
+
+
+def test_favorites_are_kept_apart_from_reading(cfg):
+    import json
+
+    (rongo.DIR).mkdir(parents=True, exist_ok=True)
+    (rongo.DIR / "progress.json").write_text(json.dumps({"read": {"01-01": "2026-11-27"}}), encoding="utf-8")  # old format
+    (rongo.DIR / "notes").mkdir()
+    (rongo.DIR / "notes" / "01-04.md").write_text(
+        "## 書き下し文\nX\n\n## 現代語訳\n曾子が言った。\n\n## 語句\n- 曾子\n\n## 教訓\n振り返る習慣。\n\n## 今日の問い\n?\n", encoding="utf-8")
+    s = rongo.set_fav("01-04", today=date(2026, 11, 28))
+    assert s["current"]["fav_on"] == "2026-11-28" and s["read"] == 1  # reading history kept
+    rongo.set_fav("01-02", today=date(2026, 11, 28))
+    rongo.mark_read("01-02", today=date(2026, 11, 28))  # reading does not drop the star
+    s = rongo.status()
+    assert [f["id"] for f in s["favorites"]] == ["01-02", "01-04"]  # in the book's order
+    fav4 = s["favorites"][1]
+    assert (fav4["translation"], fav4["lesson"]) == ("曾子が言った。", "振り返る習慣。")
+    assert s["favorites"][0]["translation"] == ""  # no explanation yet
+    assert s["books"][0]["chapters"][3]["fav"] and s["read"] == 2
+    rongo.set_fav("01-02", fav=False)
+    assert [f["id"] for f in rongo.status()["favorites"]] == ["01-04"]
+    with pytest.raises(ValueError):
+        rongo.set_fav("99-99")
