@@ -212,6 +212,7 @@
   .crtable td.num, .crtable th.num { text-align: right; white-space: nowrap; }
   .crtable tr.crchecked td { background: color-mix(in srgb, var(--ok) 6%, transparent); }
   .crtable td.neg { color: var(--bad); font-weight: 600; }
+  #cr-list tr.crcur td { background: var(--accent-soft); } #cr-list td.num, #cr-list th.num { text-align: right; white-space: nowrap; }
   .crtable tr.crexcluded td { opacity: .5; } .crtable tr.crexcluded td.crm { text-decoration: line-through; }
   .crtable .crx { margin-left: 6px; color: var(--muted); }
   .crhint { color: var(--muted); font-size: 11.5px; margin-top: 2px; white-space: normal; }
@@ -1229,8 +1230,29 @@ function crPaint() {
       <button class="btn" id="cr-export">CSV に書き出す</button>${s.closed ? "" : ' <button class="btn" id="cr-delete">この月を削除</button>'}</span></h2>
     ${s.problems.length && !s.closed ? `<div class="cal-legend" style="clear:both">確定の前に: ${s.problems.map(esc).join(" / ")}</div>` : ""}
     ${s.source ? `<div class="cal-legend">取り込み元: ${esc(s.source.file)}（${esc((s.source.imported_at || "").replace("T", " "))}）</div>` : ""}</div>`;
-  main.innerHTML = upload + head + tiles + `<div class="card" id="cr-table"></div>`;
+  main.innerHTML = upload + head + tiles + `<div class="card" id="cr-table"></div>` + crMonthList();
   crPaintTable();
+}
+// Every month side by side (newest first); a row opens that month.
+function crMonthList() {
+  const c = state.crCfg, [ma, mb] = c.members, ms = state.crMonths || [];
+  if (ms.length < 2) return "";
+  const open = store.get("crListOpen") !== "0";
+  const row = m => {
+    const billedOk = m.billed === null || m.billed === undefined ? "" : m.billed === m.statement_total ? " ✓" : " ⚠";
+    return `<tr data-crgo="${esc(m.month)}" class="${m.month === state.crMonth ? "crcur" : ""}" style="cursor:pointer">
+      <td>${esc(m.month)}</td><td>${m.closed ? '<span class="pill ok">確定</span>' : m.unchecked ? `<span class="pill open">未確認 ${m.unchecked}</span>` : '<span class="pill">作業中</span>'}</td>
+      <td class="num">${yen(m.statement_total)}</td><td class="num">${m.billed === null || m.billed === undefined ? "—" : yen(m.billed) + billedOk}</td>
+      <td class="num">${yen(m.deposit.a)}</td><td class="num">${yen(m.deposit.b)}</td><td class="num">${yen(m.total.shared)}</td>
+      <td class="num">${m.balance === null || m.balance === undefined ? "—" : yen(m.balance)}</td><td class="num">${yen(m.deposit.shared)}</td>
+      <td class="num">${m.excluded.count ? `${m.excluded.count} 件` : ""}</td></tr>`;
+  };
+  return `<details class="card" id="cr-list" ${open ? "open" : ""}><summary style="cursor:pointer;font-weight:600">月ごとの一覧（${ms.length} か月）</summary>
+    <div class="tablewrap" style="margin-top:8px"><table data-filtered="1"><tr><th>月</th><th>状態</th><th class="num">明細の合計</th><th class="num">請求額</th>
+      <th class="num">${esc(ma.label)} の入金額</th><th class="num">${esc(mb.label)} の入金額</th><th class="num">${esc(c.shared_label)} の負担</th>
+      <th class="num">${esc(c.account_label)} の残高</th><th class="num">${esc(c.shared_label)} からの入金額</th><th class="num">除外</th></tr>
+      ${ms.map(row).join("")}</table></div>
+    <div class="cal-legend">行を押すとその月を開きます。請求額の ✓ = 明細の合計と一致、⚠ = 不一致。</div></details>`;
 }
 function crPaintTable() {
   const el = document.getElementById("cr-table"); if (!el) return;
@@ -1285,15 +1307,21 @@ function crPaintTable() {
     <div class="cal-legend">「誰」= どのカードで払ったか（振り分けの参考）。振り分けを押さない行は ${esc(c.shared_label)}。「指定」で両者の負担額を直接入力（残りが ${esc(c.shared_label)}）。赤字 = 負担額の合計が金額を超えている行。
       「除外」= 振り分けと入金額の計算から外して隠す（ポイント充当と相殺のペアなど）。請求額との照合には含めます。「過去」= 同じ店を以前どう振り分けたか（押すと同じにする）。</div>`;
 }
+function crSyncMonth(s) {  // keep the month picker and the month list current after a save
+  const m = (state.crMonths || []).find(x => x.month === s.month);
+  if (m) for (const k of ["unchecked", "billed", "balance", "total", "deposit", "statement_total", "excluded", "closed"]) m[k] = s[k];
+}
 async function crUpdate(ids, change) {
   try {
     const s = state.crData = await api("/api/credit/update", { month: state.crData.month, ids, change });
-    const m = state.crMonths.find(x => x.month === s.month); if (m) m.unchecked = s.unchecked;  // keep the month picker current
+    crSyncMonth(s);
     crPaint();
   }
   catch (e) { toast(e.message); }
 }
 document.addEventListener("click", async ev => {
+  const go = ev.target.closest("[data-crgo]");
+  if (go) { state.crMonth = go.dataset.crgo; state.crSel = new Set(); await renderCredit(true); window.scrollTo(0, 0); return; }
   const t = ev.target.closest("[data-crsplit],[data-crbulk],[data-crexclude],#cr-import,#cr-close,#cr-reopen,#cr-export,#cr-delete");
   if (!t || t.disabled) return;
   const s = state.crData;
@@ -1362,10 +1390,13 @@ document.addEventListener("change", async ev => {
     const ex = document.getElementById("cr-ex"); state.crFilter.ex = ex ? ex.checked : false; crPaintTable(); return;
   }
   if (t.id === "cr-balance" || t.id === "cr-billed") {
-    try { state.crData = await api("/api/credit/meta", { month: s.month, [t.id === "cr-balance" ? "balance" : "billed"]: t.value }); crPaint(); }
+    try { state.crData = await api("/api/credit/meta", { month: s.month, [t.id === "cr-balance" ? "balance" : "billed"]: t.value }); crSyncMonth(state.crData); crPaint(); }
     catch (e) { toast(e.message); }
   }
 });
+document.addEventListener("toggle", ev => {
+  if (ev.target.id === "cr-list") store.set("crListOpen", ev.target.open ? "1" : "0");
+}, true);
 document.addEventListener("input", ev => {
   if (ev.target.id !== "cr-q") return;
   state.crFilter.q = ev.target.value;

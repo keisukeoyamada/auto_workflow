@@ -553,7 +553,8 @@ def months() -> dict[str, Any]:
             s = summarize(json.loads(p.read_text(encoding="utf-8")))
         except (OSError, ValueError, KeyError):
             continue
-        out.append({k: s[k] for k in ("month", "closed", "billed", "total", "deposit", "unchecked")})
+        out.append({k: s[k] for k in ("month", "closed", "billed", "balance", "total", "deposit", "unchecked",
+                                       "statement_total", "excluded")})
     return {"config": public_config(), "months": out}
 
 
