@@ -301,6 +301,7 @@
   #qmemo { position: fixed; left: 16px; bottom: 70px; z-index: 40; width: min(380px, calc(100vw - 32px)); background: var(--panel);
            border: 1px solid var(--line); border-radius: 12px; padding: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.16); display: none; }
   #qmemo.open { display: block; } #qmemo textarea { width: 100%; min-height: 110px; box-sizing: border-box; }
+  body.guest #chat-toggle, body.guest .chatbtn, body.guest #qmemo-btn, body.guest #qmemo, body.guest footer { display: none !important; }
   body.only #nav, body.only header, body.only #desc, body.only #chatpanel, body.only #qmemo-btn, body.only #sysinfo,body.only #wbs-shareopen { display: none !important; }
   /* --- q067: quieter look: more whitespace, soft shadows instead of borders, fewer colours --- */
   :root { --radius: 14px; }
@@ -355,7 +356,11 @@
 
 <script>
 const TOKEN = "__NAKAMA_TOKEN__";
-const ONLY = new URLSearchParams(location.search).get("only") || "";  // q125: ?only=wbs shows that tab alone (for sharing)
+// Guest login (NAKAMA_UI_GUEST_PASSWORD): the server fills in the tabs this login may use and refuses every other API.
+const GUEST_TABS = "__NAKAMA_GUEST_TABS__".split(",").filter(t => t && !t.startsWith("__"));
+const ONLY_PARAM = new URLSearchParams(location.search).get("only") || "";  // q125: ?only=wbs shows that tab alone (for sharing)
+const ONLY = GUEST_TABS.length ? (GUEST_TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : GUEST_TABS[0]) : ONLY_PARAM;
+if (GUEST_TABS.length) { document.documentElement.classList.add("guest"); addEventListener("DOMContentLoaded", () => document.body.classList.add("guest")); }
 if (ONLY) { document.documentElement.classList.add("only"); addEventListener("DOMContentLoaded", () => document.body.classList.add("only")); }
 // q107: keep the tab rows pinned right under the header, whatever its height
 // The header is now just a floating chat button, so the tabs pin to the very top.
@@ -2557,7 +2562,11 @@ async function openSetting(path) {
 }
 
 async function render() {
-  if (ONLY) { document.body.classList.add("only"); state.tab = ONLY; document.title = (TABS.find(t => t.id === ONLY) || {}).label || ONLY; }
+  if (GUEST_TABS.length) {  // a guest can switch only between its own tabs (by URL hash); the server enforces the rest
+    document.body.classList.add("only");
+    state.tab = GUEST_TABS.includes(state.tab) ? state.tab : ONLY;
+    document.title = (TABS.find(t => t.id === state.tab) || {}).label || state.tab;
+  } else if (ONLY) { document.body.classList.add("only"); state.tab = ONLY; document.title = (TABS.find(t => t.id === ONLY) || {}).label || ONLY; }
   const tab = TABS.find(t => t.id === state.tab) || TABS[0];
   state.tab = tab.id;
   document.getElementById("desc").textContent = tab.desc || "";

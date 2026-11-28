@@ -202,7 +202,13 @@ Nakama 側でやることは 2 つだけです。
 1. ホストのポートを、`0.0.0.0` に公開する（`compose.override.example.yaml` の `ports: "8766:8765"`）。`127.0.0.1:` で公開しているポートには、ほかのコンテナから届きません。
 2. `.env` の `NAKAMA_UI_ALLOW_HOSTS` に、入口の名前（`<入口>.<tailnet名>.ts.net`）と `host.docker.internal` を足して、`docker compose up -d` を実行する。足さないと、画面が 403（host not allowed）を返します。
 
-入口が Tailscale でつないでくるので、画面のパスワード（`NAKAMA_UI_PASSWORD`）は今までどおり必要です。相手に伝えてください。
+入口が Tailscale でつないでくるので、画面のパスワードは今までどおり必要です。
+
+**相手に一部のタブだけ見せる（ゲスト用パスワード）**: `.env` に `NAKAMA_UI_GUEST_PASSWORD`（自分のパスワードとは別のもの）と、見せるタブ `NAKAMA_UI_GUEST_TABS`（カンマ区切り。既定は `credit`。使えるのは `credit` と `rongo`）を書いて、`docker compose up -d --force-recreate` を実行します。
+
+- このパスワードでログインした人には、指定したタブだけが表示されます。ナビ、チャット、メモは出ません。
+- サーバーも、ほかの API をすべて 403 で拒否します。なので、URL を書き換えても見られません。
+- 相手にはゲスト用のパスワードを伝えてください。
 
 ## 7. コネクタを追加する
 
