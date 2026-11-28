@@ -2689,6 +2689,9 @@ class _Handler(BaseHTTPRequestHandler):
             from . import credit
             self._dispatch(lambda: credit.update_rows(str(body.get("month", "")), list(body.get("ids") or []),
                                                       dict(body.get("change") or {}), self._approvers()))
+        elif url.path == "/api/credit/note":
+            from . import credit
+            self._dispatch(lambda: credit.set_note(str(body.get("key", "")), str(body.get("text", "")), self._me()))
         elif url.path == "/api/credit/meta":
             from . import credit
             meta = {k: body[k] for k in ("balance", "billed") if k in body}
