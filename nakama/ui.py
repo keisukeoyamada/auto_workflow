@@ -5,6 +5,8 @@ Security model:
 - Every /api call needs a per-process token embedded in the page (blocks cross-site requests).
 - The Host header must be localhost or listed in NAKAMA_UI_ALLOW_HOSTS (blocks DNS rebinding).
 - Optional HTTP Basic auth via NAKAMA_UI_PASSWORD (use it when exposing on a LAN, e.g. a NAS).
+- Optional guest login via NAKAMA_UI_GUEST_PASSWORD: a guest sees only NAKAMA_UI_GUEST_TABS (default
+  "credit"); the server refuses every other API for that login, so editing the URL does not widen it.
 - File access is limited to workspace/ and knowledge/; secrets (.env, config/) are never served.
 """
 from __future__ import annotations
@@ -2015,11 +2017,29 @@ def tail_log(lines: int = 200) -> str:
 
 # ---------- HTTP ----------
 
+# Which API paths each tab needs, for a guest login (prefix match). Anything else is refused.
+GUEST_TAB_APIS: dict[str, tuple[str, ...]] = {
+    "credit": ("/api/credit/",),
+    "rongo": ("/api/rongo",),
+}
+
+
+def guest_overview(tabs: list[str]) -> dict:
+    """What the page needs to draw itself for a guest: no names, agents, costs or counts."""
+    fleet = load_fleet()
+    tz = ZoneInfo(fleet.timezone)
+    return {"now": datetime.now(tz).isoformat(timespec="minutes"), "timezone": fleet.timezone, "owner": "",
+            "auth": "", "has_samples": False, "budget": 0, "spent": 0, "agents": [], "counts": {},
+            "queues": {}, "has_ticketing": False, "features": {t: True for t in tabs}, "guest": True}
+
+
 class _Handler(BaseHTTPRequestHandler):
     index_html: str = ""
     token: str = ""
     allowed_hosts: set[str] = set()
     password: str = ""
+    guest_password: str = ""
+    guest_tabs: tuple[str, ...] = ("credit",)
 
     def log_message(self, fmt, *args):  # route access logs to our logger at debug level
         log.debug("ui %s - %s", self.address_string(), fmt % args)
@@ -2029,29 +2049,46 @@ class _Handler(BaseHTTPRequestHandler):
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]").lower()
         return host in self.allowed_hosts
 
-    def _basic_ok(self) -> bool:
+    def _role(self) -> str | None:
+        """"owner", "guest" or None (not logged in). Decided from the password on every request."""
         if not self.password:
-            return True
+            return "owner"  # no login configured (localhost use)
         header = self.headers.get("Authorization", "")
         if not header.startswith("Basic "):
-            return False
+            return None
         try:
             _, _, pw = base64.b64decode(header[6:]).decode("utf-8").partition(":")
         except (ValueError, UnicodeDecodeError):
-            return False
-        return hmac.compare_digest(pw, self.password)
+            return None
+        if hmac.compare_digest(pw.encode(), self.password.encode()):
+            return "owner"
+        if self.guest_password and hmac.compare_digest(pw.encode(), self.guest_password.encode()):
+            return "guest"
+        return None
 
-    def _guard(self, api: bool) -> bool:
+    def _basic_ok(self) -> bool:
+        return self._role() is not None
+
+    def _guest_allowed(self, path: str) -> bool:
+        if path == "/api/overview":
+            return True
+        return any(path.startswith(prefix) for t in self.guest_tabs for prefix in GUEST_TAB_APIS.get(t, ()))
+
+    def _guard(self, api: bool, path: str = "") -> bool:
         if not self._host_ok():
             self._send(403, {"error": "host not allowed (set NAKAMA_UI_ALLOW_HOSTS)"})
             return False
-        if not self._basic_ok():
+        role = self._role()
+        if role is None:
             self.send_response(401)
             self.send_header("WWW-Authenticate", 'Basic realm="nakama"')
             self.end_headers()
             return False
         if api and not hmac.compare_digest(self.headers.get("X-Nakama-Token", ""), self.token):
             self._send(403, {"error": "bad token (reload the page)"})
+            return False
+        if api and role == "guest" and not self._guest_allowed(path):
+            self._send(403, {"error": "forbidden for this login"})
             return False
         return True
 
@@ -2097,13 +2134,17 @@ class _Handler(BaseHTTPRequestHandler):
         if url.path in ("/", "/index.html"):
             if not self._guard(api=False):
                 return
-            html = self.index_html.replace("__NAKAMA_TOKEN__", self.token)
+            guest = ",".join(self.guest_tabs) if self._role() == "guest" else ""
+            html = self.index_html.replace("__NAKAMA_TOKEN__", self.token).replace("__NAKAMA_GUEST_TABS__", guest)
             self._send(200, html.encode("utf-8"), "text/html")
             return
         if not url.path.startswith("/api/"):
             self._send(404, {"error": "not found"})
             return
-        if not self._guard(api=True):
+        if not self._guard(api=True, path=url.path):
+            return
+        if url.path == "/api/overview" and self._role() == "guest":
+            self._dispatch(lambda: guest_overview(list(self.guest_tabs)))
             return
 
         def list_kind():
@@ -2251,7 +2292,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         url = urlparse(self.path)
-        if not self._guard(api=True):
+        if not self._guard(api=True, path=url.path):
             return
         body = self._json_body()
         if url.path == "/api/run":
@@ -2465,9 +2506,16 @@ def make_server(host: str = "127.0.0.1", port: int = 8765) -> ThreadingHTTPServe
         "token": secrets.token_urlsafe(24),
         "allowed_hosts": {"localhost", "127.0.0.1", "::1"} | extra,
         "password": os.environ.get("NAKAMA_UI_PASSWORD", ""),
+        "guest_password": os.environ.get("NAKAMA_UI_GUEST_PASSWORD", ""),
+        "guest_tabs": tuple(t for t in (x.strip() for x in os.environ.get("NAKAMA_UI_GUEST_TABS", "credit").split(","))
+                            if t in GUEST_TAB_APIS) or ("credit",),
     })
     if host not in ("127.0.0.1", "localhost", "::1") and not handler.password:
         log.warning("UI listens on %s without NAKAMA_UI_PASSWORD; anyone allowed by Host can open it", host)
+    if handler.guest_password and not handler.password:
+        log.warning("NAKAMA_UI_GUEST_PASSWORD is ignored: set NAKAMA_UI_PASSWORD too (otherwise there is no login)")
+    if handler.guest_password and handler.guest_password == handler.password:
+        log.warning("NAKAMA_UI_GUEST_PASSWORD equals NAKAMA_UI_PASSWORD; that login gets full access")
     return _Server((host, port), handler)
 
 
