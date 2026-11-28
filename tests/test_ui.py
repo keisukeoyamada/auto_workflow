@@ -221,3 +221,13 @@ def test_chat_guard_is_read_only_and_hides_env():
     assert not denied(decide("Grep", pattern="def", path=str(ROOT / "nakama")))
     assert denied(decide("Read", file_path="C:/Windows/win.ini"))            # outside the repo
     assert denied(decide("Write", file_path=str(ROOT / "x.md"), content="x"))  # read-only
+
+
+def test_build_info_for_the_footer(tmp_path, monkeypatch):
+    monkeypatch.setattr(ui, "ROOT", tmp_path)
+    assert ui.build_info()["commit"] == "" and ui.build_info()["started_at"]  # manual/local build
+    (tmp_path / "build-info.json").write_text(
+        '{"commit": "7c1d2ab0000000000000000000000000deadbeef", "commit_date": "2026-11-28T14:05:00+09:00",'
+        ' "built_at": "2026-11-28T05:07:00Z"}', encoding="utf-8")
+    info = ui.build_info()
+    assert info["commit"].startswith("7c1d2ab") and info["commit_date"].startswith("2026-11-28")

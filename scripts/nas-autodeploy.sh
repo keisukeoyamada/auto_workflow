@@ -58,6 +58,8 @@ g merge --ff-only -q "origin/$BRANCH" || { log "cannot fast-forward to $REMOTE; 
 
 log "deploying $LOCAL -> $REMOTE"
 cd "$REPO"
+build_info() { GIT_COMMIT=$(g rev-parse HEAD); GIT_COMMIT_DATE=$(g log -1 --format=%cI); export GIT_COMMIT GIT_COMMIT_DATE; }
+build_info   # the dashboard footer shows which commit is running
 if docker compose up -d --build >> "$LOG" 2>&1; then
   log "deployed $REMOTE"
   rm -f "$SKIP"
@@ -65,5 +67,6 @@ else
   log "rebuild failed for $REMOTE; going back to $LOCAL"
   echo "$REMOTE" > "$SKIP"
   g reset -q --hard "$LOCAL"
+  build_info
   docker compose up -d --build >> "$LOG" 2>&1 || log "rebuild of $LOCAL also failed; check the log"
 fi

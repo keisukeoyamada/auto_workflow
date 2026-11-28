@@ -203,6 +203,20 @@ def _auth_label(fleet) -> str:
     return mode if ready else f"{mode} (未設定)"
 
 
+STARTED_AT = datetime.now().astimezone().isoformat(timespec="seconds")  # = when this version went live
+
+
+def build_info() -> dict:
+    """Which commit is running (from the image, see Dockerfile) and since when."""
+    try:
+        data = json.loads((ROOT / "build-info.json").read_text(encoding="utf-8"))
+        data = data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        data = {}
+    return {"commit": str(data.get("commit") or "")[:40], "commit_date": str(data.get("commit_date") or ""),
+            "built_at": str(data.get("built_at") or ""), "started_at": STARTED_AT}
+
+
 def overview(samples: bool = True) -> dict:
     fleet = load_fleet()
     tz = ZoneInfo(fleet.timezone)
@@ -249,6 +263,7 @@ def overview(samples: bool = True) -> dict:
             "my_tasks_open": my_open,
         },
         "has_ticketing": bool((fleet.ticketing or {}).get("base")),
+        "version": build_info(),
         "features": {"credit": bool((fleet.credit or {}).get("enabled")),
                      "rongo": bool((fleet.rongo or {}).get("enabled"))},
         "queues": _queues(fleet, samples),

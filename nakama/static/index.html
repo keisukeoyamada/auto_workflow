@@ -593,6 +593,15 @@ function meBadge(me) {  // who is logged in: initial in a coloured circle + name
     <div class="menu"><div class="cal-legend" style="margin:0 0 8px">ログイン中: ${esc(me.name)}</div>
       <form method="post" action="/logout"><button class="btn" type="submit" style="width:100%">ログアウト</button></form></div></details>`;
 }
+// Footer: which commit is running and when it went live (to see that an auto-deploy happened).
+function versionLine(v) {
+  if (!v) return "";
+  const t = iso => { if (!iso) return ""; const d = new Date(iso); return isNaN(d) ? "" :
+    `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+  const commit = v.commit ? `版 <code title="${esc(v.commit)}${v.commit_date ? "（コミット " + esc(t(v.commit_date)) + "）" : ""}">${esc(v.commit.slice(0, 7))}</code>`
+    : `版 手動ビルド${v.built_at ? "（作成 " + esc(t(v.built_at)) + "）" : ""}`;
+  return `${commit}・反映 ${esc(t(v.started_at))}`;
+}
 function renderHeader() {
   const o = state.overview; if (!o) return;
   setHTMLCached("me-badge", meBadge(o.me));
@@ -602,6 +611,7 @@ function renderHeader() {
     `<a href="#costs" data-tab="costs" style="color:inherit" title="定額プランなので実費ではなく、API 従量だった場合の換算額（トークンのチューニング用）">API 換算 本日 ${usd(o.spent)}</a>`,
     `更新 <span id="clock"></span> (${esc(o.timezone)})`,
     o.has_samples && `<label style="cursor:pointer"><input type="checkbox" id="samples-toggle" ${state.samples ? "checked" : ""}> サンプルを表示</label>`,
+    versionLine(o.version),
   ].filter(Boolean).map(s => `<span>${s}</span>`).join(""));
   const clock = document.getElementById("clock");
   if (clock) clock.textContent = o.now.slice(11, 16);  // text-only update: nothing else repaints
