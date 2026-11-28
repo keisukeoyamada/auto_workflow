@@ -10,3 +10,5 @@ knowledge
 config/*.yaml
 config/*.json
 references
+# Synology metadata folders
+@eaDir/
