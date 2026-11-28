@@ -7,13 +7,18 @@ Queue (shared with the devbox container, nothing else is shared): workspace/devq
   devbox.json         the devbox's heartbeat (what it is doing now)
 
 Status flow on the request: 着手OK (ready) -> 実装中 (working) -> レビュー待ち (review, with the PR number)
-or, on failure, back to 要相談 (consult) with the reason in the memo. Merging the PR is always the owner's.
+-> 完了 (done) once the PR is merged (checked on GitHub, public API, no token);
+or, on failure, back to 要相談 (consult) with the reason. Merging the PR is always the owner's.
+Each step is also kept on the request as `impl` so the tab can show where it is.
 """
 from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
+import time
+import urllib.request
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -72,7 +77,8 @@ def enqueue(ids: list[str] | None = None) -> dict[str, Any]:
             tmp = QUEUE / "jobs" / f"{r['id']}.tmp"
             tmp.write_text(json.dumps(job, ensure_ascii=False, indent=1), encoding="utf-8")
             tmp.replace(QUEUE / "jobs" / f"{r['id']}.json")
-            devreq.update(r["id"], status="working")
+            devreq.set_impl(r["id"], {"state": "queued", "at": datetime.now().isoformat(timespec="minutes")},
+                            status="working")
     return {"queued": [r["id"] for r in rows]}
 
 
@@ -84,20 +90,60 @@ def ingest() -> list[str]:
         try:
             res = json.loads(path.read_text(encoding="utf-8"))
             rid = str(res.get("id") or path.stem)
+            at = str(res.get("at") or datetime.now().isoformat(timespec="minutes"))
             if res.get("ok"):
                 pr = res.get("pr") or {}
-                devreq.update(rid, status="review", pr=str(pr.get("url") or ""),
-                              change=res.get("change") or None, usage=res.get("usage") or None,
+                devreq.update(rid, pr=str(pr.get("url") or ""), change=res.get("change") or None,
+                              usage=res.get("usage") or None,
                               note=f"devbox が下書き PR #{pr.get('number')} を作りました。レビューしてマージしてください。")
+                devreq.set_impl(rid, {"state": "pr", "number": pr.get("number"), "url": pr.get("url"),
+                                      "title": res.get("title"), "at": at}, status="review")
             else:
-                devreq.update(rid, status="consult",
-                              note=f"devbox で実装できませんでした: {res.get('error', '')}"[:900])
+                devreq.update(rid, note=f"devbox で実装できませんでした: {res.get('error', '')}"[:900])
+                devreq.set_impl(rid, {"state": "failed", "error": str(res.get("error") or "")[:300],
+                                      "detail": str(res.get("detail") or "")[:1500], "at": at}, status="consult")
             done.append(rid)
         except (OSError, ValueError) as exc:  # unknown id or a broken file: keep it aside, never loop on it
             log.warning("devbox result %s: %s", path.name, exc)
         (folder / "done").mkdir(exist_ok=True)
         path.replace(folder / "done" / f"{path.stem}-{datetime.now():%Y%m%d%H%M%S}.json")
     return done
+
+
+_last_pr_check = 0.0
+
+
+def check_prs(fetch: Any = None, every: float = 600) -> list[str]:
+    """レビュー待ち whose PR was merged -> 完了 (closed without merging -> 保留). At most every 10 minutes."""
+    global _last_pr_check
+    if time.time() - _last_pr_check < every:
+        return []
+    _last_pr_check = time.time()
+
+    def _get(url: str) -> dict[str, Any]:
+        req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "nakama"})
+        with urllib.request.urlopen(req, timeout=5) as res:
+            return json.loads(res.read().decode())
+
+    fetch = fetch or _get
+    changed = []
+    for r in devreq.load():
+        impl = r.get("impl") or {}
+        m = re.fullmatch(r"https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)", str(impl.get("url") or ""))
+        if r.get("status") != "review" or impl.get("state") != "pr" or not m:
+            continue
+        try:
+            pr = fetch(f"https://api.github.com/repos/{m.group(1)}/pulls/{m.group(2)}")
+        except Exception as exc:  # noqa: BLE001 - offline / rate limited: try again later
+            log.info("PR check skipped: %s", exc)
+            break
+        if pr.get("merged_at"):
+            devreq.set_impl(r["id"], impl | {"state": "merged", "merged_at": pr["merged_at"]}, status="done")
+            changed.append(r["id"])
+        elif pr.get("state") == "closed":
+            devreq.set_impl(r["id"], impl | {"state": "closed"}, status="hold")
+            changed.append(r["id"])
+    return changed
 
 
 def status() -> dict[str, Any]:

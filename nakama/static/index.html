@@ -1364,6 +1364,18 @@ function dqSpec(x) {
     ${qs.length ? `<div style="margin:0 0 6px"><b>決めてほしいこと</b>（下の「指示」に答えると、次の回で要件を更新します）<ul>${qs.map(q => `<li>${esc(q)}</li>`).join("")}</ul></div>` : ""}
     <div class="md">${renderMarkdown(t.spec || "")}</div></div>`;
 }
+// Where a request is in the devbox flow (queued -> working -> draft PR -> merged), with the PR link.
+function dqImplBadge(x, r) {
+  const i = x.impl || {}, box = ((r.implement || {}).devbox) || {};
+  const link = i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener noreferrer">PR #${esc(i.number || "")} ↗</a>` : "";
+  const when = i.at ? ` <span class="muted">${esc(String(i.at).slice(5, 16).replace("T", " "))}</span>` : "";
+  const b = i.state === "queued" ? (box.current === x.id ? `🔧 devbox: ${esc(box.phase || "作業")}中` : "⏳ devbox の順番待ち")
+    : i.state === "pr" ? `📝 下書き ${link}（レビューしてマージ）`
+    : i.state === "merged" ? `✅ ${link} マージ済み`
+    : i.state === "closed" ? `🚫 ${link} マージせずに閉じた`
+    : i.state === "failed" ? `<span style="color:var(--bad)">⚠ 実装できませんでした: ${esc(i.error || "")}</span>` : "";
+  return b ? `<div class="cal-legend" style="margin:4px 0 0">${b}${when}</div>` : "";
+}
 function dqImplLine(r) {
   const g = r.implement || {};
   if (r.guest || !g.enabled) return "";
@@ -1412,9 +1424,10 @@ async function renderDevreq() {
         <td class="muted">${esc(x.id)}</td>
         <td><select data-dq="${esc(x.id)}" ${r.guest && ["ready", "working", "review"].includes(x.status) ? "disabled" : ""}>${r.statuses.filter(s => !r.guest || !["ready", "working", "review"].includes(s) || x.status === s).map(s => `<option value="${s}" ${s === x.status ? "selected" : ""}>${DQ[s][0]}</option>`).join("")}</select>
           ${!r.guest && x.status === "ready" && (r.implement || {}).enabled ? `<button class="btn" data-dqimpl="${esc(x.id)}" style="margin-top:4px;padding:2px 8px">実装する</button>` : ""}</td>
-        <td>${byWho(x)}</td><td>${esc(x.text)}${x.pr ? ` <span class="cal-legend" style="margin:0">PR ${dqPrLinks(x.pr, r.repo)}</span>` : ""}</td>${fam ? `<td><input type="checkbox" data-dqfam="${esc(x.id)}" ${x.family ? "checked" : ""} title="家族のログインにも表示"></td>` : ""}
+        <td>${byWho(x)}</td><td>${esc(x.text)}${dqImplBadge(x, r)}${x.pr && !(x.impl || {}).url ? ` <span class="cal-legend" style="margin:0">PR ${dqPrLinks(x.pr, r.repo)}</span>` : ""}</td>${fam ? `<td><input type="checkbox" data-dqfam="${esc(x.id)}" ${x.family ? "checked" : ""} title="家族のログインにも表示"></td>` : ""}
         <td style="font-weight:600">${esc(x.instruction || "")}</td><td class="muted">${x.triage ? `${x.triage.size ? `<b>[${esc(x.triage.size)}]</b> ` : ""}${esc(x.triage.summary)}${(x.triage.questions || []).length ? ' <span class="pill off">質問あり</span>' : ""}` : esc(x.note)}</td></tr>
         ${state.dqOpen === x.id ? `<tr data-attach><td></td><td colspan="${fam ? 6 : 5}"><div class="card" style="margin:4px 0">
+          ${(x.impl || {}).state === "failed" && x.impl.detail ? `<div style="margin:0 0 10px;padding:10px 12px;border:1px solid var(--bad);border-radius:10px"><div class="cal-legend" style="margin:0 0 4px;font-weight:600;color:var(--bad)">devbox の最後の指摘（${esc(x.impl.error || "")}）</div><pre style="white-space:pre-wrap;margin:0;font-size:12px">${esc(x.impl.detail)}</pre></div>` : ""}
           ${dqSpec(x)}
           <div class="cal-legend" style="margin:0 0 2px;font-weight:600">${r.guest ? "指示・メモへの返信" : "あなたの指示"}（Claude はここを最優先で読む）</div><textarea id="dq-instr" style="min-height:50px">${esc(x.instruction || "")}</textarea>
           <div class="cal-legend" style="margin:6px 0 2px">変更内容（どう修正したか）</div><textarea id="dq-change" style="min-height:70px">${esc(x.change || "")}</textarea>

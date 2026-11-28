@@ -2422,6 +2422,7 @@ class _Handler(BaseHTTPRequestHandler):
             guest = self._role() == "guest"
             from . import cronja, devimpl, devtriage
             devimpl.ingest()  # the devbox's finished work shows up on the next look
+            devimpl.check_prs()  # merged PRs -> 完了 (GitHub public API, at most every 10 minutes)
             self._dispatch(lambda: {"requests": devreq.for_family() if guest else devreq.load(),
                                     "implement": {} if guest else devimpl.status()
                                     | {"schedule_ja": cronja.describe(devimpl.schedule())},

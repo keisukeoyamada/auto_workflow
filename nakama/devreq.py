@@ -11,6 +11,7 @@ Stored in workspace/dev/requests.json (git-ignored):
   stay private unless the owner ticks them (so nothing personal or work-related reaches the family by default).
   The guest can use family requests fully (status, reply to the memo) but never sees or touches the others.
   triage = the requirements Claude wrote (devtriage.py): {summary, size, questions, spec, hash, at}
+  impl = what the devbox did (devimpl.py): {state: queued|pr|merged|closed|failed, number, url, error, at}
 """
 from __future__ import annotations
 
@@ -105,6 +106,20 @@ def set_triage(rid: str, triage: dict[str, Any]) -> dict[str, Any]:
         row["status"] = "consult"
     elif not triage.get("questions") and row.get("status") == "consult":
         row["status"] = "open"
+    row["updated"] = datetime.now().isoformat(timespec="minutes")
+    _save(rows)
+    return row
+
+
+def set_impl(rid: str, impl: dict[str, Any], status: str | None = None) -> dict[str, Any]:
+    """Record the devbox's progress on a request (and optionally its status)."""
+    rows = load()
+    row = next((r for r in rows if r["id"] == rid), None)
+    if row is None:
+        raise ValueError(f"unknown request: {rid}")
+    row["impl"] = {k: v for k, v in impl.items() if v not in (None, "")}
+    if status:
+        row["status"] = status
     row["updated"] = datetime.now().isoformat(timespec="minutes")
     _save(rows)
     return row
