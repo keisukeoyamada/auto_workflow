@@ -2252,7 +2252,7 @@ async function renderNote(gotoLine) {
   main.innerHTML = '<div class="empty">読み込み中…</div>';
   let r;
   try { r = await api("/api/note/raw"); } catch (e) { main.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
-  state.noteMtime = r.mtime; state.noteDirty = false;
+  state.noteMtime = r.mtime; state.noteVersion = r.version || ""; state.noteDirty = false;
   main.innerHTML = `<div class="card"><div class="toolbar row" style="margin-bottom:8px"><span class="path" style="margin-right:auto">${esc(r.path)}</span>
       <span class="cal-legend" id="note-state" style="margin:0">保存済み</span>
       <button class="btn" id="note-reload">再読み込み</button><button class="btn primary" id="note-savebtn">保存（Ctrl+S）</button></div>
@@ -2301,8 +2301,8 @@ function noteKeys(ev) {
 }
 async function saveNote() {
   const ed = document.getElementById("note-editor"); if (!ed) return;
-  try { const r = await api("/api/note/save", { text: ed.value, mtime: state.noteMtime });
-        state.noteMtime = r.mtime; state.noteDirty = false; document.getElementById("note-state").textContent = "保存しました"; toast("ノートを保存しました"); }
+  try { const r = await api("/api/note/save", { text: ed.value, mtime: state.noteMtime, version: state.noteVersion || "" });
+        state.noteMtime = r.mtime; state.noteVersion = r.version || ""; state.noteDirty = false; document.getElementById("note-state").textContent = "保存しました"; toast("ノートを保存しました"); }
   catch (e) { toast(e.message); document.getElementById("note-state").textContent = "保存できません: " + e.message; }
 }
 window.addEventListener("beforeunload", ev => { if (state.noteDirty || state.vaultEditing) { ev.preventDefault(); ev.returnValue = ""; } });

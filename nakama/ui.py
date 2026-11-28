@@ -2617,7 +2617,7 @@ class _Handler(BaseHTTPRequestHandler):
                                                self.headers.get("X-Vault-Token", "")))
         elif url.path == "/api/note/save":
             from . import todo_note
-            self._dispatch(lambda: todo_note.save_raw(str(body.get("text", "")), float(body.get("mtime") or 0)))
+            self._dispatch(lambda: todo_note.save_raw(str(body.get("text", "")), float(body.get("mtime") or 0), str(body.get("version") or "")))
         elif url.path == "/api/note/addchild":
             self._dispatch(lambda: add_note_child(body))
         elif url.path == "/api/note/add":

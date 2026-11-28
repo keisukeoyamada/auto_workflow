@@ -46,9 +46,12 @@ def test_add_item_goes_to_section_end(note):
 
 def test_save_raw_refuses_stale_editor(note):
     raw = todo_note.read_raw()
-    todo_note.save_raw(raw["text"] + "□added\n", raw["mtime"])
+    saved = todo_note.save_raw(raw["text"] + "□added\n", raw["mtime"], raw["version"])
     with pytest.raises(todo_note.NoteError):
-        todo_note.save_raw("x\n", raw["mtime"])  # the file changed since this editor loaded it
+        # the file changed since this editor loaded it, even within the same filesystem timestamp tick
+        todo_note.save_raw("x\n", raw["mtime"], raw["version"])
+    todo_note.save_raw("y\n", saved["mtime"], saved["version"])  # the editor that saved last may save again
+    assert note.read_text(encoding="utf-8") == "y\n"
 
 
 def test_devreq_keeps_open_items_open(tmp_path, monkeypatch):

@@ -208,21 +208,32 @@ def add_child(parent_line: int, parent_raw: str, text: str, star: bool = False) 
     return {"line": at, "raw": new_line}
 
 
+def _version(path) -> str:
+    """A fingerprint of the file's bytes. Modification times are too coarse for this on Linux (writes a few
+    milliseconds apart can share one), so "did it change since the editor loaded it?" compares contents."""
+    import hashlib
+
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+
+
 def read_raw() -> dict[str, Any]:
     """Whole note for the free-form editor (same file Obsidian edits)."""
     path = note_path()
     if path is None or not path.exists():
         raise NoteError("todo_note.path が未設定か、ファイルがありません")
     text, nl = _read(path)
-    return {"path": str(path), "text": text.replace("\r\n", "\n"), "mtime": path.stat().st_mtime, "crlf": nl == "\r\n"}
+    return {"path": str(path), "text": text.replace("\r\n", "\n"), "mtime": path.stat().st_mtime,
+            "version": _version(path), "crlf": nl == "\r\n"}
 
 
-def save_raw(text: str, expected_mtime: float) -> dict[str, Any]:
-    """Save the editor's text unless the file changed since it was loaded (e.g. edited in Obsidian)."""
+def save_raw(text: str, expected_mtime: float, expected_version: str = "") -> dict[str, Any]:
+    """Save the editor's text unless the file changed since it was loaded (e.g. edited in Obsidian).
+    Prefer `expected_version` (contents); the mtime check stays for older pages that only send mtime."""
     path = note_path()
     if path is None or not path.exists():
         raise NoteError("todo_note.path が未設定か、ファイルがありません")
-    if abs(path.stat().st_mtime - float(expected_mtime)) > 0.001:
+    changed = (_version(path) != expected_version) if expected_version else abs(path.stat().st_mtime - float(expected_mtime)) > 0.001
+    if changed:
         raise NoteError("ノートが別の場所（Obsidian など）で更新されています。再読み込みしてから編集してください")
     if len(text) > 2_000_000:
         raise NoteError("大きすぎます")
@@ -232,7 +243,7 @@ def save_raw(text: str, expected_mtime: float) -> dict[str, Any]:
     if trailing:
         lines = lines[:-1]
     _write(path, lines, nl, trailing)
-    return {"mtime": path.stat().st_mtime, "lines": len(lines)}
+    return {"mtime": path.stat().st_mtime, "version": _version(path), "lines": len(lines)}
 
 
 def set_due(line_no: int, raw: str, due: str) -> dict[str, Any]:
