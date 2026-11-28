@@ -11,7 +11,8 @@
 # goes back to the previous commit, rebuilds that, and does not retry the same commit.
 # Log: <repo>/logs/autodeploy.log
 set -eu
-export PATH="$PATH:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"  # Synology task: docker is in /usr/local/bin
+export PATH="$PATH:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:/var/packages/Git/target/bin"
+# (Synology task: docker is in /usr/local/bin; git from the Git Server package may be under /var/packages)
 
 REPO=$(cd "${1:-$(dirname "$0")/..}" && pwd)
 BRANCH="${AUTODEPLOY_BRANCH:-main}"
@@ -25,13 +26,21 @@ mkdir "$LOCK" 2>/dev/null || exit 0          # another run is still going
 trap 'rmdir "$LOCK"' EXIT INT TERM
 
 # Run git as the owner of the checkout so pulled files stay theirs (the task runs as root for docker).
+# sudo resets PATH (secure_path), so git is called by its full path, with the owner's HOME for its settings.
+GIT=$(command -v git || true)
+[ -n "$GIT" ] || { log "git not found (PATH=$PATH)"; exit 0; }
 OWNER=$(ls -ld "$REPO" | awk '{print $3}')
+OWNER_HOME=$(eval echo "~$OWNER")
+[ -d "$OWNER_HOME" ] || OWNER_HOME=/tmp
 g() {
-  if [ "$(id -u)" = 0 ] && [ "$OWNER" != root ]; then sudo -u "$OWNER" git -C "$REPO" "$@"
-  else git -C "$REPO" "$@"; fi
+  if [ "$(id -u)" = 0 ] && [ "$OWNER" != root ]; then
+    sudo -n -u "$OWNER" env HOME="$OWNER_HOME" PATH="$PATH" "$GIT" -C "$REPO" "$@"
+  else "$GIT" -C "$REPO" "$@"; fi
 }
+# The last lines of a failed command, on one log line (so the log says why).
+why() { printf '%s' "$1" | tail -n 3 | tr '\n' ' ' | cut -c1-300; }
 
-g fetch -q origin "$BRANCH" || { log "git fetch failed"; exit 0; }
+OUT=$(g fetch -q origin "$BRANCH" 2>&1) || { log "git fetch failed: $(why "$OUT")"; exit 0; }
 LOCAL=$(g rev-parse HEAD)
 REMOTE=$(g rev-parse "origin/$BRANCH")
 [ "$LOCAL" = "$REMOTE" ] && exit 0
@@ -54,7 +63,7 @@ fi
 if ! g diff --quiet || ! g diff --cached --quiet; then
   log "local changes to tracked files; not deploying (commit or discard them)"; exit 0
 fi
-g merge --ff-only -q "origin/$BRANCH" || { log "cannot fast-forward to $REMOTE; not deploying"; exit 0; }
+OUT=$(g merge --ff-only -q "origin/$BRANCH" 2>&1) || { log "cannot fast-forward to $REMOTE; not deploying: $(why "$OUT")"; exit 0; }
 
 log "deploying $LOCAL -> $REMOTE"
 cd "$REPO"
