@@ -54,3 +54,5 @@ references/
 
 # Written into the image at build time (see Dockerfile); a local copy is only for trying the footer
 build-info.json
+# Synology metadata folders
+@eaDir/

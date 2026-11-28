@@ -40,6 +40,12 @@ g() {
 # The last lines of a failed command, on one log line (so the log says why).
 why() { printf '%s' "$1" | tail -n 3 | tr '\n' ' ' | cut -c1-300; }
 
+# Synology drops "@eaDir" metadata folders (…@SynoEAStream) even inside .git; git then reads them as broken
+# refs ("fatal: bad object refs/remotes/origin/@eaDir/…") and every fetch fails. They are never git's own: remove.
+if [ -n "$(find "$REPO/.git" -name '@eaDir' -type d -print -quit 2>/dev/null)" ]; then
+  find "$REPO/.git" -name '@eaDir' -type d -prune -exec rm -rf {} + && log "removed Synology @eaDir folders from .git"
+fi
+
 OUT=$(g fetch -q origin "$BRANCH" 2>&1) || { log "git fetch failed: $(why "$OUT")"; exit 0; }
 LOCAL=$(g rev-parse HEAD)
 REMOTE=$(g rev-parse "origin/$BRANCH")
