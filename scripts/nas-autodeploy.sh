@@ -19,6 +19,7 @@ BRANCH="${AUTODEPLOY_BRANCH:-main}"
 LOG="$REPO/logs/autodeploy.log"
 SKIP="$REPO/logs/autodeploy.skip"    # commit we gave up on (failed CI or failed build): not retried
 LOCK="${TMPDIR:-/tmp}/nakama-autodeploy.lock"
+STATE="$REPO/logs/autodeploy-state.json"  # read by the dashboard: "反映中… あと約 N 分"
 
 mkdir -p "$REPO/logs"
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
@@ -73,6 +74,12 @@ OUT=$(g merge --ff-only -q "origin/$BRANCH" 2>&1) || { log "cannot fast-forward 
 
 log "deploying $LOCAL -> $REMOTE"
 cd "$REPO"
+# How long the last deploy took (seconds) is the estimate for this one.
+LAST=$(sed -n 's/.*"seconds": *\([0-9][0-9]*\).*/\1/p' "$STATE" 2>/dev/null | head -n1)
+[ -n "$LAST" ] || LAST=180
+START=$(date +%s)
+state() { printf '{"state": "%s", "to": "%s", "started": %s, "seconds": %s}\n' "$1" "$REMOTE" "$START" "$2" > "$STATE"; chmod 644 "$STATE"; }
+state deploying "$LAST"
 build_info() {
   GIT_COMMIT=$(g rev-parse HEAD); GIT_COMMIT_DATE=$(g log -1 --format=%cI); GIT_REPO_URL="https://github.com/$SLUG"
   export GIT_COMMIT GIT_COMMIT_DATE GIT_REPO_URL
@@ -81,10 +88,12 @@ build_info   # the dashboard footer shows which commit is running
 if docker compose up -d --build >> "$LOG" 2>&1; then
   log "deployed $REMOTE"
   rm -f "$SKIP"
+  state done "$(( $(date +%s) - START ))"
 else
   log "rebuild failed for $REMOTE; going back to $LOCAL"
   echo "$REMOTE" > "$SKIP"
   g reset -q --hard "$LOCAL"
   build_info
   docker compose up -d --build >> "$LOG" 2>&1 || log "rebuild of $LOCAL also failed; check the log"
+  state failed "$LAST"
 fi

@@ -255,3 +255,17 @@ def test_system_jobs_list_only_enabled_ones(tmp_path, monkeypatch):
     jobs = {j["id"]: j for j in ui.system_jobs()}
     assert set(jobs) == {"devtriage", "devbox"}  # rongo is off
     assert jobs["devtriage"]["running"] and jobs["devbox"]["error"]  # no heartbeat from the devbox yet
+
+
+def test_deploy_state_for_the_banner(tmp_path, monkeypatch):
+    import json
+
+    monkeypatch.setattr(ui, "LOGS_DIR", tmp_path)
+    assert ui.deploy_state() == {}
+    f = tmp_path / "autodeploy-state.json"
+    f.write_text(json.dumps({"state": "deploying", "to": "abcdef1234", "started": 1000, "seconds": 240}))
+    assert ui.deploy_state(now=1060) == {"deploying": True, "to": "abcdef1", "remaining": 180}
+    assert ui.deploy_state(now=1500)["remaining"] == 0  # past the estimate: "まもなく"
+    assert ui.deploy_state(now=1000 + 3600) == {}  # stale (the script died)
+    f.write_text(json.dumps({"state": "done", "to": "x", "started": 1000, "seconds": 200}))
+    assert ui.deploy_state(now=1100) == {}

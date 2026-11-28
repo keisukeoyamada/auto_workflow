@@ -329,6 +329,15 @@
     .crtable td { border: 0; padding: 0; }
     .crtable td.crm { min-width: 0; }
     .crtable td.crsplit { grid-column: 1 / -1; white-space: normal; } }
+  #deploybar { display: none; margin: 8px 20px 0; padding: 8px 12px; border-radius: 10px; font-size: 13px;
+               background: var(--accent-soft); border: 1px solid var(--accent); }
+  #deploybar.show { display: block; }
+  body.guest #deploybar { margin-top: 48px; }  /* below the name badge (guests may have no tab bar) */
+  #restarting { display: none; position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.45);
+                align-items: center; justify-content: center; }
+  #restarting.show { display: flex; }
+  #restarting > div { background: var(--panel); color: var(--text); padding: 18px 22px; border-radius: 14px;
+                      max-width: min(360px, 86vw); text-align: center; line-height: 1.7; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
   #toast { position: fixed; right: 16px; bottom: 16px; background: var(--text); color: var(--bg); padding: 10px 14px;
            border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 80vw; }
   #toast.show { opacity: .95; }
@@ -385,10 +394,12 @@
   <button class="btn chatbtn" id="chat-toggle" title="Claude に相談（読み取り専用）">💬</button>
 </header>
 <div id="nav" class="navwrap"></div>
+<div id="deploybar"></div>
 <div id="desc" class="tabdesc"></div>
 <main id="main"></main>
 <footer id="sysinfo"></footer>
 <div id="toast"></div>
+<div id="restarting"><div><b>🔄 新しい版に入れ替え中です</b><br>数十秒で戻ります。戻ったら自動で読み直します。<br><span class="cal-legend" id="restarting-n"></span></div></div>
 <button id="qmemo-btn" title="メモ（どの画面からでも）">📝</button>
 <div id="qmemo"><div class="row" style="justify-content:space-between;margin-bottom:6px"><strong>📝 メモ</strong>
   <span class="cal-legend" style="margin:0">Ctrl+Enter で保存</span></div>
@@ -2868,10 +2879,42 @@ async function render() {
   else renderKind(tab);
 }
 
+// Auto-deploy (NAS): while the new version is built the old one still answers -> a banner with the estimate;
+// while the container is swapped (tens of seconds) nothing answers -> an overlay that retries, and the page
+// reloads itself when the new server is up.
+function deployBar(o) {
+  const d = o.deploy || {}, el = document.getElementById("deploybar");
+  if (!el) return;
+  const min = Math.max(1, Math.round((d.remaining || 0) / 60));
+  const html = d.deploying ? `🔄 最新版${d.to ? `（${esc(d.to)}）` : ""}を反映中です。${d.remaining ? `あと約 ${min} 分。` : "まもなく終わります。"}最後に数十秒つながらなくなりますが、自動でつなぎ直します。` : "";
+  el.classList.toggle("show", !!html);
+  if (el.dataset.last !== html) { el.innerHTML = html; el.dataset.last = html; }
+}
+function serverGone(e) {  // connection refused / reset, or the gateway's 502-504 while the app restarts
+  return e instanceof TypeError || /HTTP 50[234]/.test(e.message || "");
+}
+async function waitForRestart() {
+  if (state.restarting) return;
+  state.restarting = true;
+  document.getElementById("restarting").classList.add("show");
+  const started = Date.now();
+  for (;;) {
+    await new Promise(r => setTimeout(r, 3000));
+    document.getElementById("restarting-n").textContent = `${Math.round((Date.now() - started) / 1000)} 秒`;
+    try { await api("/api/overview?" + sq()); location.reload(); return; }  // (a new server reloads inside api())
+    catch (e) { if (!serverGone(e)) { location.reload(); return; } }
+  }
+}
 async function refreshOverview(force = false) {
   let o;
   try { o = await api("/api/overview?" + sq()); }
-  catch (e) { toast("サーバーに接続できません: " + e.message); return; }
+  catch (e) {
+    if (serverGone(e) && ((state.overview || {}).deploy || {}).deploying) { waitForRestart(); return; }
+    toast("サーバーに接続できません: " + e.message); return;
+  }
+  deployBar(o);
+  clearTimeout(state.deployPoll);  // poll faster while a deploy runs, to catch the swap
+  if ((o.deploy || {}).deploying) state.deployPoll = setTimeout(refreshOverview, 5000);
   const key = JSON.stringify({ ...o, now: o.now.slice(0, 10) });  // ignore the clock, keep the date
   const changed = force || key !== state.overviewKey;
   state.overview = o; state.overviewKey = key;

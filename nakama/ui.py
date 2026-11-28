@@ -219,6 +219,24 @@ def build_info() -> dict:
             "built_at": str(data.get("built_at") or ""), "started_at": STARTED_AT}
 
 
+def deploy_state(now: float | None = None) -> dict:
+    """The NAS auto-deploy in progress (scripts/nas-autodeploy.sh writes logs/autodeploy-state.json)."""
+    try:
+        data = json.loads((LOGS_DIR / "autodeploy-state.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict) or data.get("state") != "deploying":
+        return {}
+    now = now if now is not None else time.time()
+    try:
+        elapsed, estimate = now - float(data["started"]), float(data.get("seconds") or 180)
+    except (KeyError, TypeError, ValueError):
+        return {}
+    if elapsed > max(1800, estimate * 3):  # stale: the script must have died
+        return {}
+    return {"deploying": True, "to": str(data.get("to") or "")[:7], "remaining": int(max(0, estimate - elapsed))}
+
+
 def system_jobs() -> list[dict]:
     """The built-in jobs next to the agents (論語の解説, 要件定義, devbox): enabled ones only, for the dashboard."""
     jobs: list[dict] = []
@@ -300,6 +318,7 @@ def overview(samples: bool = True) -> dict:
         "spent": round(sum(spent.values()), 4),
         "agents": agents,
         "jobs": system_jobs(),
+        "deploy": deploy_state(),
         "counts": {
             "drafts": count("drafts"),
             "action_items_open": count("action_items", "open"),
@@ -2198,7 +2217,8 @@ def guest_overview(tabs: list[str]) -> dict:
     tz = ZoneInfo(fleet.timezone)
     return {"now": datetime.now(tz).isoformat(timespec="minutes"), "timezone": fleet.timezone, "owner": "",
             "auth": "", "has_samples": False, "budget": 0, "spent": 0, "agents": [], "counts": {},
-            "queues": {}, "has_ticketing": False, "features": {t: True for t in tabs}, "guest": True}
+            "queues": {}, "has_ticketing": False, "features": {t: True for t in tabs}, "guest": True,
+            "deploy": deploy_state()}
 
 
 class _Handler(BaseHTTPRequestHandler):
