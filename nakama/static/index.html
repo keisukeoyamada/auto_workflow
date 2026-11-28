@@ -258,6 +258,23 @@
   .rg-fav.cur { background: var(--accent-soft); margin: 0 -14px; padding: 10px 14px; }
   .rg-fav-text { font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif CJK JP", "Noto Serif JP", serif; font-size: 16px; margin: 4px 0; }
   @media (max-width: 760px) { .rg-text { font-size: 19px; } .rg-book { grid-template-columns: 4.5em 1fr; } .rg-book .cnt { display: none; } }
+  /* credit: monthly steps + approvals */
+  .crsteps { display: flex; flex-wrap: wrap; gap: 8px; }
+  .crstep { position: relative; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--panel);
+            color: var(--muted); border-radius: 999px; padding: 5px 12px 5px 5px; font: inherit; font-size: 13px; cursor: help; }
+  .crstep .no { width: 22px; height: 22px; border-radius: 50%; background: var(--code); display: inline-flex; align-items: center;
+                justify-content: center; font-size: 12px; font-weight: 700; }
+  .crstep.done { color: var(--ok); } .crstep.done .no { background: var(--ok); color: #fff; }
+  .crstep.now { color: var(--text); border-color: var(--accent); font-weight: 600; } .crstep.now .no { background: var(--accent); color: #fff; }
+  .crstep .tip { display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; width: min(320px, 80vw);
+                 background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+                 font-size: 12.5px; font-weight: 400; line-height: 1.6; text-align: left; box-shadow: 0 6px 20px rgba(0,0,0,.12); white-space: normal; }
+  .crstep.rt .tip { left: auto; right: 0; }
+  .crstep:hover .tip, .crstep.open .tip { display: block; }
+  .crappr { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 3px; border-radius: 999px; border: 1px solid var(--line);
+            font-size: 13px; color: var(--muted); }
+  .crappr .av { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; font-weight: 700; }
+  .crappr.ok { color: var(--text); border-color: var(--ok); } .crappr.ok b { color: var(--ok); }
   /* credit statement split */
   .crtable td, .crtable th { padding: 5px 6px; font-size: 13px; }
   .crtable td.num, .crtable th.num { text-align: right; white-space: nowrap; }
@@ -302,7 +319,7 @@
            border: 1px solid var(--line); border-radius: 12px; padding: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.16); display: none; }
   #qmemo.open { display: block; } #qmemo textarea { width: 100%; min-height: 110px; box-sizing: border-box; }
   body.guest #chat-toggle, body.guest .chatbtn, body.guest #qmemo-btn, body.guest #qmemo, body.guest footer { display: none !important; }
-  body.only #nav, body.only header, body.only #desc, body.only #chatpanel, body.only #qmemo-btn, body.only #sysinfo,body.only #wbs-shareopen { display: none !important; }
+  body.only #nav, body.only:not(.guest) header, body.only #desc, body.only #chatpanel, body.only #qmemo-btn, body.only #sysinfo,body.only #wbs-shareopen { display: none !important; }
   /* --- q067: quieter look: more whitespace, soft shadows instead of borders, fewer colours --- */
   :root { --radius: 14px; }
   body { font-size: 14.5px; letter-spacing: .01em; -webkit-font-smoothing: antialiased; }
@@ -312,7 +329,15 @@
   /* no top bar: the header is only the floating chat button (status line lives in the footer) */
   header { position: fixed; top: 8px; right: 16px; left: auto; padding: 0; z-index: 20; background: none;
            border: 0; backdrop-filter: none; width: auto; }
-  #nav { padding-right: 56px; }  /* room for the floating chat button */
+  #nav { padding-right: 190px; }  /* room for the floating name badge + chat button */
+  header { display: flex; align-items: center; gap: 8px; }
+  .me { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 3px; border-radius: 999px;
+        background: var(--panel); border: 1px solid var(--line); font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .me .av { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+            color: #fff; font-size: 13px; font-weight: 700; }
+  .av-blue { background: #2f6fde; } .av-pink { background: #d6408f; } .av-green { background: #1f8a4c; }
+  .av-orange { background: #c27400; } .av-purple { background: #7850dc; } .av-gray { background: #667085; }
+  @media (max-width: 760px) { #nav { padding-right: 96px; } .me .nm { display: none; } .me { padding: 3px; } }
   #nav { position: sticky; top: var(--hdr-h, 52px); z-index: 9; background: var(--bg); }
   .card, .tile, .list, .viewer { border: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
                                  box-shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 6px 20px rgba(0, 0, 0, .04); }
@@ -328,6 +353,7 @@
 </head>
 <body>
 <header>
+  <span id="me-badge"></span>
   <button class="btn chatbtn" id="chat-toggle" title="Claude に相談（読み取り専用）">💬</button>
 </header>
 <div id="nav" class="navwrap"></div>
@@ -557,8 +583,13 @@ function setHTMLCached(id, html) {
   const el = document.getElementById(id);
   if (el && el.dataset.last !== html) { el.innerHTML = html; el.dataset.last = html; }
 }
+function meBadge(me) {  // who is logged in: initial in a coloured circle + name (top right)
+  if (!me) return "";
+  return `<span class="me" title="ログイン中: ${esc(me.name)}"><span class="av av-${esc(me.color)}">${esc([...me.name][0] || "?")}</span><span class="nm">${esc(me.name)}</span></span>`;
+}
 function renderHeader() {
   const o = state.overview; if (!o) return;
+  setHTMLCached("me-badge", meBadge(o.me));
   // q130: status line is rarely needed -> page footer (the top stays free for tabs)
   setHTMLCached("sysinfo", [
     o.owner && `オーナー: ${esc(o.owner)}`, `認証: ${esc(o.auth)}`,
@@ -1933,6 +1964,41 @@ async function renderCredit(keepMonth) {
   if (state.crMonth) { try { state.crData = await api("/api/credit/month?month=" + state.crMonth); } catch (e) { toast(e.message); } }
   crPaint();
 }
+// 毎月やること: five steps with their state; hover (or tap on a phone) shows how to do each one.
+function crSteps(s) {
+  const c = state.crCfg;
+  const approved = s ? (s.approvers || []).every(u => (s.approvals || {})[u.role]) && (s.approvers || []).length > 0 : false;
+  const names = s ? (s.approvers || []).map(u => u.name).join("・") : "";
+  const steps = [
+    { label: "明細を取り込む", done: !!s,
+      tip: "カード会社のサイトで今月の利用明細を CSV でダウンロードして、「明細 CSV を取り込む」で選ぶ。同じ月を取り込み直しても、入力した振り分けやメモは消えません。" },
+    { label: "振り分ける", done: !!s && s.unchecked === 0,
+      tip: `各行で ${c.shared_label} ／ ${c.members[0].label} ／ ${c.members[1].label} ／ 折半 ／ 指定 を選び、見終わった行は「状態」にチェック。「過去:」の表示は前に同じ店をどう分けたかの目安。ポイント充当などは「除外」。` },
+    { label: "請求額と残高を入れる", done: !!s && s.balance !== null && s.billed !== null && s.billed === s.statement_total,
+      tip: `カード会社の画面の「ご請求金額」を請求額に、${c.account_label}の今の残高を残高に入れる。「請求額と一致」と出れば OK。` },
+    { label: "承認する", done: approved,
+      tip: `記入が終わったら、それぞれが「承認する」を押す（${names || "全員"}）。誰がいつ承認したかが残ります。承認のあとで振り分けが変わると承認は外れるので、押し直してください。` },
+    { label: "確定する", done: !!s && s.closed,
+      tip: `全員の承認がそろったら「確定」。各自と${c.shared_label}からの入金額が決まり、CSV にも書き出されます。確定した月は変更できません（取り消しはできます）。` },
+  ];
+  const now = steps.findIndex(x => !x.done);
+  return `<div class="card"><h2>毎月やること <span class="cal-legend" style="font-weight:400;margin:0">（各ステップにカーソル・タップで説明）</span></h2>
+    <div class="crsteps">${steps.map((x, i) => `<button class="crstep ${x.done ? "done" : ""} ${i === now ? "now" : ""} ${i >= 3 ? "rt" : ""}" data-crstep="${i}">
+      <span class="no">${x.done ? "✓" : i + 1}</span>${esc(x.label)}<span class="tip">${esc(x.tip)}</span></button>`).join("")}</div></div>`;
+}
+const crTime = iso => iso ? `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))} ${iso.slice(11, 16)}` : "";
+function crApprovals(s) {
+  const me = (state.overview || {}).me || { role: "owner" };
+  const list = (s.approvers || []).map(u => {
+    const a = (s.approvals || {})[u.role];
+    return `<span class="crappr ${a ? "ok" : ""}"><span class="av av-${esc(u.color)}">${esc([...u.name][0] || "?")}</span>${esc(u.name)}
+      ${a ? `<b>承認済み</b> ${esc(crTime(a.at))}` : "未承認"}</span>`;
+  }).join("");
+  const mine = (s.approvals || {})[me.role];
+  const btn = s.closed ? "" : mine ? '<button class="btn" id="cr-unapprove">承認を取り消す</button>'
+    : '<button class="btn primary" id="cr-approve">承認する</button>';
+  return `<div class="row crapprs" style="margin-top:8px">${list}${btn}</div>`;
+}
 function crPaint() {
   const main = document.getElementById("main");
   const s = state.crData, c = state.crCfg, [ma, mb] = c.members;
@@ -1942,7 +2008,7 @@ function crPaint() {
     <div class="cal-legend">カード会社のサイトでダウンロードした CSV を選ぶ。同じ月を取り込み直しても、入力済みの振り分け・状態・memo は残ります。
       ファイルとデータは workspace/credit/ に保存され、Git には入りません。<br>
       過去の分は、月ごとのシート（シート名 YYYYMM・日付/誰/内容/金額/2 人分の負担額）の Excel を選ぶと確定済みの月として取り込めます（既にある月は上書きしません）。</div></div>`;
-  if (!s) { main.innerHTML = upload + '<div class="empty">まだ明細がありません。CSV を取り込んでください。</div>'; return; }
+  if (!s) { main.innerHTML = crSteps(null) + upload + '<div class="empty">まだ明細がありません。CSV を取り込んでください。</div>'; return; }
   const lock = s.closed ? "disabled" : "";
   const months = `<select id="cr-msel">${state.crMonths.map(m => `<option value="${esc(m.month)}" ${m.month === s.month ? "selected" : ""}>${esc(m.month)}${m.closed ? "（確定）" : m.unchecked ? `（未確認 ${m.unchecked}）` : ""}</option>`).join("")}</select>`;
   const billedOk = s.billed === null ? "" : s.billed === s.statement_total ? '<span class="pill ok">請求額と一致</span>' : '<span class="pill off">請求額と不一致</span>';
@@ -1960,9 +2026,10 @@ function crPaint() {
     <span class="right">${s.closed ? '<button class="btn" id="cr-reopen">確定を取り消す</button>'
       : `<button class="btn primary" id="cr-close" ${s.can_close ? "" : "disabled"} title="${esc(s.problems.join(" / "))}">確定</button>`}
       <button class="btn" id="cr-export">CSV に書き出す</button>${s.closed ? "" : ' <button class="btn" id="cr-delete">この月を削除</button>'}</span></h2>
+    ${crApprovals(s)}
     ${s.problems.length && !s.closed ? `<div class="cal-legend" style="clear:both">確定の前に: ${s.problems.map(esc).join(" / ")}</div>` : ""}
     ${s.source ? `<div class="cal-legend">取り込み元: ${esc(s.source.file)}（${esc((s.source.imported_at || "").replace("T", " "))}）</div>` : ""}</div>`;
-  main.innerHTML = upload + head + tiles + `<div class="card" id="cr-table"></div>` + crMonthList();
+  main.innerHTML = crSteps(s) + upload + head + tiles + `<div class="card" id="cr-table"></div>` + crMonthList();
   crPaintTable();
 }
 // Every month side by side (newest first); a row opens that month.
@@ -2041,22 +2108,36 @@ function crPaintTable() {
 }
 function crSyncMonth(s) {  // keep the month picker and the month list current after a save
   const m = (state.crMonths || []).find(x => x.month === s.month);
-  if (m) for (const k of ["unchecked", "billed", "balance", "total", "deposit", "statement_total", "excluded", "closed"]) m[k] = s[k];
+  if (m) for (const k of ["unchecked", "billed", "balance", "total", "deposit", "statement_total", "excluded", "closed", "approvals"]) m[k] = s[k];
 }
 async function crUpdate(ids, change) {
   try {
+    const hadApprovals = Object.keys(state.crData.approvals || {}).length;
     const s = state.crData = await api("/api/credit/update", { month: state.crData.month, ids, change });
     crSyncMonth(s);
     crPaint();
+    if (hadApprovals && !Object.keys(s.approvals || {}).length) toast("振り分けが変わったので、承認を外しました（押し直してください）");
   }
   catch (e) { toast(e.message); }
 }
 document.addEventListener("click", async ev => {
   const go = ev.target.closest("[data-crgo]");
   if (go) { state.crMonth = go.dataset.crgo; state.crSel = new Set(); await renderCredit(true); window.scrollTo(0, 0); return; }
-  const t = ev.target.closest("[data-crsplit],[data-crbulk],[data-crexclude],#cr-import,#cr-close,#cr-reopen,#cr-export,#cr-delete");
+  const step = ev.target.closest("[data-crstep]");
+  document.querySelectorAll(".crstep.open").forEach(el => { if (el !== step) el.classList.remove("open"); });
+  if (step) { step.classList.toggle("open"); return; }
+  const t = ev.target.closest("[data-crsplit],[data-crbulk],[data-crexclude],#cr-import,#cr-close,#cr-reopen,#cr-export,#cr-delete,#cr-approve,#cr-unapprove");
   if (!t || t.disabled) return;
   const s = state.crData;
+  if (t.id === "cr-approve" || t.id === "cr-unapprove") {
+    const on = t.id === "cr-approve";
+    if (on && s.unchecked && !confirm(`未確認の行が ${s.unchecked} 件あります。このまま承認しますか？`)) return;
+    try {
+      state.crData = await api("/api/credit/approve", { month: s.month, approved: on }); crSyncMonth(state.crData); crPaint();
+      toast(on ? "承認しました" : "承認を取り消しました");
+    } catch (e) { toast(e.message); }
+    return;
+  }
   if (t.dataset.crsplit) { crUpdate([t.dataset.crid], { split: t.dataset.crsplit }); return; }
   if (t.dataset.crexclude) {
     const r = s.rows.find(x => x.id === t.dataset.crexclude);

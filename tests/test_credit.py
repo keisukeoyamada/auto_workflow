@@ -238,3 +238,39 @@ def test_months_list_has_figures_for_each_month(cfg):
     assert ms["202609"]["closed"] and ms["202609"]["billed"] == ms["202609"]["statement_total"] == 5040
     assert ms["202611"]["balance"] == 500 and ms["202611"]["deposit"]["shared"] == 3714 - 500
     assert ms["202611"]["excluded"] == {"count": 0, "amount": 0}
+
+
+OWNER = {"role": "owner", "name": "A", "color": "blue"}
+GUEST = {"role": "guest", "name": "B", "color": "pink"}
+
+
+def test_approvals_gate_closing_and_reset_on_money_changes(cfg):
+    credit.import_csv("activity.csv", _b64(CSV_ACTIVITY), now=datetime(2026, 11, 27))
+    v = credit.month_view("202611")
+    ids = [x["id"] for x in v["rows"]]
+    credit.update_rows("202611", ids, {"checked": True})
+    credit.set_meta("202611", balance="0", billed="3714")
+    req = [OWNER, GUEST]
+    v = credit.month_view("202611", req)
+    assert not v["can_close"] and "承認待ち: A・B" in v["problems"]
+    v = credit.approve("202611", OWNER, now=datetime(2026, 11, 28, 10, 5), required=req)
+    assert v["approvals"]["owner"] == {"name": "A", "at": "2026-11-28T10:05:00"} and "承認待ち: B" in v["problems"]
+    credit.approve("202611", GUEST, now=datetime(2026, 11, 28, 10, 6), required=req)
+    v = credit.update_rows("202611", ids[:1], {"memo": "note", "checked": True}, req)  # no money change: kept
+    assert set(v["approvals"]) == {"owner", "guest"} and v["can_close"]
+    v = credit.update_rows("202611", ids[:1], {"split": "half"}, req)  # who pays changed: approvals withdrawn
+    assert v["approvals"] == {} and not v["can_close"]
+    with pytest.raises(ValueError, match="確定できません"):
+        credit.close("202611", True, required=req)
+    credit.approve("202611", OWNER, required=req)
+    credit.approve("202611", GUEST, required=req)
+    assert credit.close("202611", True, required=req)["closed"]
+    with pytest.raises(ValueError, match="確定済み"):
+        credit.approve("202611", OWNER, approved=False, required=req)
+
+
+def test_approve_can_be_withdrawn(cfg):
+    credit.import_csv("activity.csv", _b64(CSV_ACTIVITY), now=datetime(2026, 11, 27))
+    credit.approve("202611", GUEST)
+    assert "guest" in credit.month_view("202611")["approvals"]
+    assert credit.approve("202611", GUEST, approved=False)["approvals"] == {}

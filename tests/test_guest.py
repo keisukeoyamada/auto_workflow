@@ -78,3 +78,24 @@ def test_guest_tabs_from_env(monkeypatch):
         assert srv.RequestHandlerClass.guest_tabs == ("credit", "rongo")
     finally:
         srv.server_close()
+
+
+def test_me_and_guest_can_approve_credit(server, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from nakama import credit
+
+    monkeypatch.setattr(credit, "DIR", tmp_path / "credit")
+    fleet = SimpleNamespace(credit={"enabled": True}, ui_users={"guest": {"name": "B", "color": "pink"}},
+                            owner={"name": "A"}, timezone="Asia/Tokyo")
+    monkeypatch.setattr(credit, "load_fleet", lambda: fleet)
+    monkeypatch.setattr(ui, "load_fleet", lambda: fleet)
+    (tmp_path / "credit" / "statements").mkdir(parents=True)
+    (tmp_path / "credit" / "statements" / "202611.json").write_text(json.dumps(
+        {"month": "202611", "billed": None, "balance": None, "closed": False, "rows": []}), encoding="utf-8")
+    assert ui.ui_user("owner") == {"role": "owner", "name": "A", "color": "blue"}
+    token = _token(_req(server, "GET", "/", pw="guest-pw")[1])
+    code, body = _req(server, "POST", "/api/credit/approve", pw="guest-pw", token=token, body={"month": "202611"})
+    data = json.loads(body)
+    assert code == 200 and data["approvals"]["guest"]["name"] == "B"
+    assert [u["role"] for u in data["approvers"]] == ["owner", "guest"] and "承認待ち: A" in data["problems"]
