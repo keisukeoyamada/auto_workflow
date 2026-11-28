@@ -227,7 +227,7 @@ python -m nakama serve --ui      # スケジューラと一緒に起動（常駐
   - 既定では `127.0.0.1` だけで待ち受けます。
   - API 呼び出しには起動ごとに発行するトークンが必要です。
   - 読めるのは `workspace/` と `knowledge/` だけで、`.env` や `config/` は表示できません。
-- NAS などで LAN から開く場合は、`.env` に `NAKAMA_UI_PASSWORD`（Basic 認証）と `NAKAMA_UI_ALLOW_HOSTS`（例: `nas.local,192.168.1.20`）を設定し、`compose.yaml` のポートを `"8765:8765"` にします。
+- NAS などで LAN から開く場合は、`.env` に `NAKAMA_UI_PASSWORD`（ログイン画面のパスワード）と `NAKAMA_UI_ALLOW_HOSTS`（例: `nas.local,192.168.1.20`）を設定し、`compose.yaml` のポートを `"8765:8765"` にします。
 
 ### 運用の流れ
 1. 朝、`workspace/mail/drafts/` の下書きを読む。冒頭の「要約（送信しない）」だけ読めば状況が分かる。

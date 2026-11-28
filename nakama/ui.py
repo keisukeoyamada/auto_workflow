@@ -4,7 +4,8 @@ Security model:
 - Binds to 127.0.0.1 by default.
 - Every /api call needs a per-process token embedded in the page (blocks cross-site requests).
 - The Host header must be localhost or listed in NAKAMA_UI_ALLOW_HOSTS (blocks DNS rebinding).
-- Optional HTTP Basic auth via NAKAMA_UI_PASSWORD (use it when exposing on a LAN, e.g. a NAS).
+- Optional login via NAKAMA_UI_PASSWORD (use it when exposing on a LAN, e.g. a NAS): a login page sets an
+  HttpOnly session cookie (90 days); "ログアウト" drops it. Changing a password signs out its sessions.
 - Optional guest login via NAKAMA_UI_GUEST_PASSWORD: a guest sees only NAKAMA_UI_GUEST_TABS (default
   "credit"); the server refuses every other API for that login, so editing the URL does not widen it.
 - File access is limited to workspace/ and knowledge/; secrets (.env, config/) are never served.
@@ -12,6 +13,7 @@ Security model:
 from __future__ import annotations
 
 import base64
+import hashlib
 import hmac
 import json
 import logging
@@ -27,6 +29,7 @@ from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from http.cookies import CookieError, SimpleCookie
 from urllib.parse import parse_qs, urlparse
 from urllib.parse import quote as url_quote
 from zoneinfo import ZoneInfo
@@ -2026,15 +2029,105 @@ GUEST_TAB_APIS: dict[str, tuple[str, ...]] = {
 
 UI_COLORS = ("blue", "pink", "green", "orange", "purple", "gray")
 
+# ---------- login sessions (cookie) ----------
+SESSION_COOKIE = "nakama_session"
+SESSION_DAYS = 90
+SESSION_FILE = LOGS_DIR / "ui-sessions.json"  # hashes only; logs/ is git-ignored
+_session_lock = threading.Lock()
 
-def ui_user(role: str) -> dict:
-    """Who a login is, for display: fleet.yaml `ui_users.<owner|guest>: {name, color}` with plain defaults."""
+
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _sessions_load() -> dict:
+    try:
+        data = json.loads(SESSION_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _sessions_save(data: dict) -> None:
+    SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = SESSION_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data), encoding="utf-8")
+    tmp.replace(SESSION_FILE)
+
+
+def session_new(role: str, password: str, name: str = "") -> str:
+    """A random token for the cookie; only its hash is stored, with the role, the user name typed at login
+    and (a short hash of) the password it was opened with."""
+    token = secrets.token_urlsafe(32)
+    now = time.time()
+    with _session_lock:
+        data = {k: v for k, v in _sessions_load().items() if v.get("exp", 0) > now}
+        data[_sha(token)] = {"role": role, "name": _clean_name(name), "pw": _sha(password)[:16],
+                             "at": now, "exp": now + SESSION_DAYS * 86400}
+        _sessions_save(data)
+    return token
+
+
+def _latest_session_name(role: str) -> str:
+    """The user name most recently typed at login for this role (shown for someone who is not the viewer)."""
+    now = time.time()
+    entries = [v for v in _sessions_load().values() if v.get("role") == role and v.get("name") and v.get("exp", 0) > now]
+    return max(entries, key=lambda v: v.get("at", 0))["name"] if entries else ""
+
+
+def session_get(token: str) -> dict | None:
+    if not token:
+        return None
+    entry = _sessions_load().get(_sha(token))
+    return entry if entry and entry.get("exp", 0) > time.time() else None
+
+
+def session_drop(token: str) -> None:
+    if not token:
+        return
+    with _session_lock:
+        data = _sessions_load()
+        if data.pop(_sha(token), None) is not None:
+            _sessions_save(data)
+
+
+LOGIN_HTML = """<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>ログイン</title>
+<style>
+:root { --bg:#f6f7f9; --panel:#fff; --text:#1d2330; --muted:#667085; --line:#e3e6eb; --accent:#2f6fde; --bad:#c4352b; }
+@media (prefers-color-scheme: dark) { :root { --bg:#12151b; --panel:#1a1e26; --text:#e6e9ef; --muted:#98a1b3; --line:#2a303c; --accent:#6b9cff; --bad:#ff6b60; } }
+* { box-sizing: border-box; }
+body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg); color:var(--text);
+       font:15px/1.6 system-ui,-apple-system,"Segoe UI","Hiragino Sans","Yu Gothic UI",sans-serif; padding:16px; }
+form { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:28px 24px; width:min(360px,100%); }
+h1 { font-size:18px; margin:0 0 18px; }
+label { display:block; font-size:13px; color:var(--muted); margin:12px 0 4px; }
+input { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--text); font:inherit; font-size:16px; }
+button { margin-top:18px; width:100%; padding:11px; border:0; border-radius:999px; background:var(--accent); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+.err { color:var(--bad); font-size:13px; margin:0 0 6px; } .note { color:var(--muted); font-size:12px; margin-top:12px; }
+</style></head><body>
+<form method="post" action="/login">
+  <h1>ログイン</h1>__ERROR__
+  <label for="u">ユーザー名（画面に表示されます）</label><input id="u" name="username" autocomplete="username" value="" required>
+  <label for="p">パスワード</label><input id="p" name="password" type="password" autocomplete="current-password" required autofocus>
+  <button type="submit">ログイン</button>
+  <div class="note">この端末では 90 日間ログインしたままになります。右上の名前からログアウトできます。</div>
+</form></body></html>"""
+
+
+def _clean_name(name: Any) -> str:
+    return re.sub(r"\s+", " ", str(name or "")).strip()[:40]
+
+
+def ui_user(role: str, name: str = "") -> dict:
+    """Who a login is, for display. Name: the user name typed at login (this session, else the latest one
+    for that login), else fleet.yaml `ui_users.<owner|guest>.name`, else a plain default. Colour from ui_users."""
     fleet = load_fleet()
-    cfg = (fleet.ui_users or {}).get(role) or {}
+    cfg = (getattr(fleet, "ui_users", None) or {}).get(role) or {}
     cfg = cfg if isinstance(cfg, dict) else {}
-    default_name = (fleet.owner.get("name") or "オーナー") if role == "owner" else "ゲスト"
+    default_name = "オーナー" if role == "owner" else "ゲスト"
     color = str(cfg.get("color") or ("blue" if role == "owner" else "pink"))
-    return {"role": role, "name": str(cfg.get("name") or default_name)[:40],
+    return {"role": role, "name": _clean_name(name) or _latest_session_name(role) or _clean_name(cfg.get("name")) or default_name,
             "color": color if color in UI_COLORS else "gray"}
 
 
@@ -2063,28 +2156,87 @@ class _Handler(BaseHTTPRequestHandler):
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]").lower()
         return host in self.allowed_hosts
 
-    def _role(self) -> str | None:
-        """"owner", "guest" or None (not logged in). Decided from the password on every request."""
-        if not self.password:
-            return "owner"  # no login configured (localhost use)
-        header = self.headers.get("Authorization", "")
-        if not header.startswith("Basic "):
-            return None
-        try:
-            _, _, pw = base64.b64decode(header[6:]).decode("utf-8").partition(":")
-        except (ValueError, UnicodeDecodeError):
-            return None
-        if hmac.compare_digest(pw.encode(), self.password.encode()):
+    def _role_for_password(self, pw: str) -> str | None:
+        if self.password and hmac.compare_digest(pw.encode(), self.password.encode()):
             return "owner"
-        if self.guest_password and hmac.compare_digest(pw.encode(), self.guest_password.encode()):
+        if self.password and self.guest_password and hmac.compare_digest(pw.encode(), self.guest_password.encode()):
             return "guest"
         return None
+
+    def _cookie_token(self) -> str:
+        try:
+            jar = SimpleCookie(self.headers.get("Cookie", ""))
+        except CookieError:
+            return ""
+        morsel = jar.get(SESSION_COOKIE)
+        return morsel.value if morsel else ""
+
+    def _session(self) -> dict | None:
+        """The valid session of this request: only while the password it was opened with is still current."""
+        entry = session_get(self._cookie_token())
+        if not entry:
+            return None
+        current = {"owner": self.password, "guest": self.guest_password}.get(entry.get("role"), "")
+        return entry if current and entry.get("pw") == _sha(current)[:16] else None
+
+    def _role(self) -> str | None:
+        """"owner", "guest" or None (not logged in), from the session cookie."""
+        if not self.password:
+            return "owner"  # no login configured (localhost use)
+        entry = self._session()
+        return entry["role"] if entry else None
 
     def _basic_ok(self) -> bool:
         return self._role() is not None
 
+    def _redirect(self, location: str, cookie: str | None = None) -> None:
+        self.send_response(303)
+        self.send_header("Location", location)
+        if cookie is not None:
+            self.send_header("Set-Cookie", cookie)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _login_page(self, error: bool) -> None:
+        msg = '<p class="err">パスワードが違います</p>' if error else ""
+        self._send(200, LOGIN_HTML.replace("__ERROR__", msg).encode("utf-8"), "text/html")
+
+    def _form_body(self) -> dict:
+        length = min(int(self.headers.get("Content-Length") or 0), 16 * 1024)
+        raw = self.rfile.read(length).decode("utf-8", "replace") if length else ""
+        if "json" in (self.headers.get("Content-Type") or ""):
+            try:
+                data = json.loads(raw or "{}")
+                return data if isinstance(data, dict) else {}
+            except json.JSONDecodeError:
+                return {}
+        return {k: v[0] for k, v in parse_qs(raw).items()}
+
+    def _do_login(self) -> None:
+        if not self._host_ok():
+            self._send(403, {"error": "host not allowed (set NAKAMA_UI_ALLOW_HOSTS)"})
+            return
+        if not self.password:
+            self._redirect("/")
+            return
+        form = self._form_body()
+        pw = str(form.get("password", ""))
+        role = self._role_for_password(pw)
+        if role is None:
+            time.sleep(1)  # slow down guessing
+            self._redirect("/login?e=1")
+            return
+        token = session_new(role, pw, str(form.get("username", "")))
+        self._redirect("/", f"{SESSION_COOKIE}={token}; Path=/; Max-Age={SESSION_DAYS * 86400}; HttpOnly; SameSite=Lax")
+
+    def _do_logout(self) -> None:
+        session_drop(self._cookie_token())
+        self._redirect("/login", f"{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
+
     def _me(self) -> dict:
-        return ui_user(self._role() or "owner")
+        entry = self._session() if self.password else None
+        return ui_user(self._role() or "owner", (entry or {}).get("name", ""))
 
     def _approvers(self) -> list[dict]:
         """Who must approve a credit month: the owner, plus the guest when a guest login exists."""
@@ -2101,9 +2253,10 @@ class _Handler(BaseHTTPRequestHandler):
             return False
         role = self._role()
         if role is None:
-            self.send_response(401)
-            self.send_header("WWW-Authenticate", 'Basic realm="nakama"')
-            self.end_headers()
+            if api:
+                self._send(401, {"error": "login required"})
+            else:
+                self._redirect("/login")
             return False
         if api and not hmac.compare_digest(self.headers.get("X-Nakama-Token", ""), self.token):
             # a tab left open across a restart still polls (with the old token): it is open, so count it
@@ -2156,6 +2309,14 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         url = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
+        if url.path == "/login":
+            if not self._host_ok():
+                self._send(403, {"error": "host not allowed (set NAKAMA_UI_ALLOW_HOSTS)"})
+            elif not self.password or self._role():
+                self._redirect("/")
+            else:
+                self._login_page(q.get("e") == "1")
+            return
         if url.path in ("/", "/index.html"):
             if not self._guard(api=False):
                 return
@@ -2317,6 +2478,12 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         url = urlparse(self.path)
+        if url.path == "/login":
+            self._do_login()
+            return
+        if url.path == "/logout":
+            self._do_logout()
+            return
         if not self._guard(api=True, path=url.path):
             return
         body = self._json_body()
