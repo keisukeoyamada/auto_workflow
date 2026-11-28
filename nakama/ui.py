@@ -2024,6 +2024,20 @@ GUEST_TAB_APIS: dict[str, tuple[str, ...]] = {
 }
 
 
+UI_COLORS = ("blue", "pink", "green", "orange", "purple", "gray")
+
+
+def ui_user(role: str) -> dict:
+    """Who a login is, for display: fleet.yaml `ui_users.<owner|guest>: {name, color}` with plain defaults."""
+    fleet = load_fleet()
+    cfg = (fleet.ui_users or {}).get(role) or {}
+    cfg = cfg if isinstance(cfg, dict) else {}
+    default_name = (fleet.owner.get("name") or "オーナー") if role == "owner" else "ゲスト"
+    color = str(cfg.get("color") or ("blue" if role == "owner" else "pink"))
+    return {"role": role, "name": str(cfg.get("name") or default_name)[:40],
+            "color": color if color in UI_COLORS else "gray"}
+
+
 def guest_overview(tabs: list[str]) -> dict:
     """What the page needs to draw itself for a guest: no names, agents, costs or counts."""
     fleet = load_fleet()
@@ -2068,6 +2082,13 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _basic_ok(self) -> bool:
         return self._role() is not None
+
+    def _me(self) -> dict:
+        return ui_user(self._role() or "owner")
+
+    def _approvers(self) -> list[dict]:
+        """Who must approve a credit month: the owner, plus the guest when a guest login exists."""
+        return [ui_user("owner")] + ([ui_user("guest")] if self.password and self.guest_password else [])
 
     def _guest_allowed(self, path: str) -> bool:
         if path == "/api/overview":
@@ -2148,7 +2169,7 @@ class _Handler(BaseHTTPRequestHandler):
         if not self._guard(api=True, path=url.path):
             return
         if url.path == "/api/overview" and self._role() == "guest":
-            self._dispatch(lambda: guest_overview(list(self.guest_tabs)))
+            self._dispatch(lambda: guest_overview(list(self.guest_tabs)) | {"me": self._me()})
             return
 
         def list_kind():
@@ -2157,7 +2178,7 @@ class _Handler(BaseHTTPRequestHandler):
             return _list_kind(q["kind"], q.get("samples", "1") != "0")
 
         if url.path == "/api/overview":
-            self._dispatch(lambda: overview(q.get("samples", "1") != "0"))
+            self._dispatch(lambda: overview(q.get("samples", "1") != "0") | {"me": self._me()})
         elif url.path == "/api/list":
             self._dispatch(list_kind)
         elif url.path == "/api/file":
@@ -2231,7 +2252,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._dispatch(credit.months)
         elif url.path == "/api/credit/month":
             from . import credit
-            self._dispatch(lambda: credit.month_view(q.get("month", "")))
+            self._dispatch(lambda: credit.month_view(q.get("month", ""), self._approvers()))
         elif url.path == "/api/credit/export":
             from . import credit
             self._dispatch(lambda: credit.export_csv(q.get("month", "")))
@@ -2467,14 +2488,19 @@ class _Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/credit/update":
             from . import credit
             self._dispatch(lambda: credit.update_rows(str(body.get("month", "")), list(body.get("ids") or []),
-                                                      dict(body.get("change") or {})))
+                                                      dict(body.get("change") or {}), self._approvers()))
         elif url.path == "/api/credit/meta":
             from . import credit
             meta = {k: body[k] for k in ("balance", "billed") if k in body}
-            self._dispatch(lambda: credit.set_meta(str(body.get("month", "")), **meta))
+            self._dispatch(lambda: credit.set_meta(str(body.get("month", "")), **meta, required=self._approvers()))
         elif url.path == "/api/credit/close":
             from . import credit
-            self._dispatch(lambda: credit.close(str(body.get("month", "")), bool(body.get("closed"))))
+            self._dispatch(lambda: credit.close(str(body.get("month", "")), bool(body.get("closed")),
+                                                required=self._approvers()))
+        elif url.path == "/api/credit/approve":
+            from . import credit
+            self._dispatch(lambda: credit.approve(str(body.get("month", "")), self._me(), bool(body.get("approved", True)),
+                                                  required=self._approvers()))
         elif url.path == "/api/credit/delete":
             from . import credit
             self._dispatch(lambda: credit.delete_month(str(body.get("month", ""))))

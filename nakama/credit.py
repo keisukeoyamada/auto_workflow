@@ -293,6 +293,8 @@ def import_csv(filename: str, data_b64: str, month: str = "", now: datetime | No
                 rows.append(prev | {k: r[k] for k in ("id", "date", "holder", "holder_key", "card", "merchant", "amount")})
             else:
                 rows.append(r | {"split": "shared", "a": 0, "b": 0, "checked": False, "memo": ""})
+        if len(rows) != kept or len(old) != kept:  # rows came or went: earlier approvals no longer hold
+            st["approvals"] = {}
         st["rows"] = rows
         st["source"] = {"file": Path(filename).name[:120], "imported_at": now.isoformat(timespec="seconds")}
         raw_dir = DIR / "raw"
@@ -506,7 +508,8 @@ def parts(r: dict[str, Any]) -> tuple[int, int, int]:
     return a, b, amount - a - b
 
 
-def summarize(st: dict[str, Any]) -> dict[str, Any]:
+def summarize(st: dict[str, Any], required: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """`required` = who must approve before the month can be closed: [{"role", "name", "color"}, ...]."""
     order = {"a": 0, "b": 1}
     rows = []
     for r in st["rows"]:
@@ -530,6 +533,11 @@ def summarize(st: dict[str, Any]) -> dict[str, Any]:
         problems.append(f"明細の合計 {statement_total:,} 円が請求額 {billed:,} 円と一致しません")
     if balance is None:
         problems.append("口座残高が未入力です")
+    approvals = dict(st.get("approvals") or {})
+    required = list(required or [])
+    waiting = [u["name"] for u in required if u["role"] not in approvals]
+    if waiting:
+        problems.append("承認待ち: " + "・".join(waiting))
     return {
         "month": st["month"], "closed": bool(st.get("closed")), "closed_at": st.get("closed_at"),
         "billed": billed, "balance": balance, "source": st.get("source"),
@@ -538,6 +546,7 @@ def summarize(st: dict[str, Any]) -> dict[str, Any]:
                     "shared": None if balance is None else total["shared"] - int(balance)},
         "unchecked": unchecked, "negative_shared": over,
         "can_close": not problems, "problems": problems,
+        "approvals": approvals, "approvers": required,
     }
 
 
@@ -554,13 +563,13 @@ def months() -> dict[str, Any]:
         except (OSError, ValueError, KeyError):
             continue
         out.append({k: s[k] for k in ("month", "closed", "billed", "balance", "total", "deposit", "unchecked",
-                                       "statement_total", "excluded")})
+                                       "statement_total", "excluded", "approvals")})
     return {"config": public_config(), "months": out}
 
 
-def month_view(month: str) -> dict[str, Any]:
+def month_view(month: str, required: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     _require_enabled()
-    view = summarize(_load(month))
+    view = summarize(_load(month), required)
     idx = _history(view["month"])
     for r in view["rows"]:
         r["hint"] = _hint(r, idx)
@@ -574,7 +583,12 @@ def _editable(month: str) -> dict[str, Any]:
     return st
 
 
-def update_rows(month: str, ids: list[str], change: dict[str, Any]) -> dict[str, Any]:
+# Changes that alter who pays what: they withdraw earlier approvals (nobody approves what they have not seen).
+_MONEY_KEYS = ("split", "a", "b", "excluded")
+
+
+def update_rows(month: str, ids: list[str], change: dict[str, Any],
+                required: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Change split / custom amounts / checked / memo on one or more rows."""
     _require_enabled()
     ids = [str(i) for i in ids][:1000]
@@ -610,11 +624,14 @@ def update_rows(month: str, ids: list[str], change: dict[str, Any]) -> dict[str,
                 r["memo"] = str(change["memo"])[:500]
             if "excluded" in change:
                 r["excluded"] = bool(change["excluded"])
+        if any(k in change for k in _MONEY_KEYS):
+            st["approvals"] = {}
         _save(st)
-    return month_view(month)
+    return month_view(month, required)
 
 
-def set_meta(month: str, balance: Any = ..., billed: Any = ...) -> dict[str, Any]:
+def set_meta(month: str, balance: Any = ..., billed: Any = ...,
+             required: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     _require_enabled()
 
     def num(v: Any) -> int | None:
@@ -632,7 +649,27 @@ def set_meta(month: str, balance: Any = ..., billed: Any = ...) -> dict[str, Any
         if billed is not ...:
             st["billed"] = num(billed)
         _save(st)
-    return month_view(month)
+    return month_view(month, required)
+
+
+def approve(month: str, who: dict[str, Any], approved: bool = True, now: datetime | None = None,
+            required: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Record (or withdraw) one person's approval of the month: who = {"role", "name"}; keeps the time."""
+    _require_enabled()
+    role = str(who.get("role") or "")
+    if not role:
+        raise ValueError("誰の承認か分かりません")
+    with _lock:
+        st = _editable(month)
+        approvals = dict(st.get("approvals") or {})
+        if approved:
+            approvals[role] = {"name": str(who.get("name") or role)[:40],
+                               "at": (now or datetime.now()).isoformat(timespec="seconds")}
+        else:
+            approvals.pop(role, None)
+        st["approvals"] = approvals
+        _save(st)
+    return month_view(month, required)
 
 
 def export_csv(month: str) -> dict[str, Any]:
@@ -658,12 +695,13 @@ def export_csv(month: str) -> dict[str, Any]:
     return {"filename": f"credit-{month}.csv", "csv": "﻿" + buf.getvalue()}
 
 
-def close(month: str, closed: bool, now: datetime | None = None) -> dict[str, Any]:
+def close(month: str, closed: bool, now: datetime | None = None,
+          required: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     _require_enabled()
     with _lock:
         st = _load(month)
         if closed:
-            s = summarize(st)
+            s = summarize(st, required)
             if not s["can_close"]:
                 raise ValueError("確定できません: " + " / ".join(s["problems"]))
             st["closed"], st["closed_at"] = True, (now or datetime.now()).isoformat(timespec="seconds")
@@ -674,7 +712,7 @@ def close(month: str, closed: bool, now: datetime | None = None) -> dict[str, An
         out = DIR / "exports"
         out.mkdir(parents=True, exist_ok=True)
         (out / f"{month}.csv").write_text(export_csv(month)["csv"], encoding="utf-8")
-    return month_view(month)
+    return month_view(month, required)
 
 
 def delete_month(month: str) -> dict[str, Any]:
