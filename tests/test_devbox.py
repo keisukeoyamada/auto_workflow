@@ -137,3 +137,29 @@ def test_dashboard_side_queue_and_results(tmp_path, monkeypatch):
     fleet.devreq = {}
     with pytest.raises(PermissionError):
         devimpl.enqueue()
+
+
+def test_progress_is_recorded_and_merged_prs_complete(tmp_path, monkeypatch):
+    monkeypatch.setattr(devreq, "FILE", tmp_path / "requests.json")
+    monkeypatch.setattr(devimpl, "QUEUE", tmp_path / "devq")
+    monkeypatch.setattr(devimpl, "load_fleet", lambda: SimpleNamespace(devreq={"implement": {"enabled": True}}))
+    monkeypatch.setattr(devimpl, "_repo_slug", lambda: "o/r")
+    a, b = devreq.add("A"), devreq.add("B")
+    for x in (a, b):
+        devreq.update(x["id"], status="ready")
+    devimpl.enqueue()
+    assert devreq.load()[0]["impl"]["state"] == "queued"
+    (tmp_path / "devq" / "results").mkdir()
+    for x, n in ((a, 31), (b, 32)):
+        (tmp_path / "devq" / "results" / f"{x['id']}.json").write_text(json.dumps(
+            {"id": x["id"], "ok": True, "pr": {"number": n, "url": f"https://github.com/o/r/pull/{n}"}, "title": "T"}))
+    devimpl.ingest()
+    ra = devreq.load()[0]
+    assert (ra["status"], ra["impl"]["state"], ra["impl"]["number"]) == ("review", "pr", 31)
+    states = {"31": {"merged_at": "2026-11-29T01:00:00Z", "state": "closed"}, "32": {"merged_at": None, "state": "open"}}
+    assert devimpl.check_prs(fetch=lambda url: states[url.rsplit("/", 1)[1]], every=0) == [a["id"]]
+    ra, rb = devreq.load()
+    assert (ra["status"], ra["impl"]["state"], rb["status"]) == ("done", "merged", "review")
+    states["32"] = {"merged_at": None, "state": "closed"}
+    assert devimpl.check_prs(fetch=lambda url: states[url.rsplit("/", 1)[1]], every=0) == [b["id"]]
+    assert devreq.load()[1]["status"] == "hold" and devimpl.check_prs(fetch=lambda url: 1 / 0, every=3600) == []
