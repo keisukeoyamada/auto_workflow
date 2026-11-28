@@ -236,3 +236,22 @@ def test_build_info_for_the_footer(tmp_path, monkeypatch):
                         ('javascript:alert(1)', "")):  # only a plain GitHub repository URL is used for links
         (tmp_path / "build-info.json").write_text(f'{{"commit": "x", "repo": "{repo}"}}', encoding="utf-8")
         assert ui.build_info()["repo"] == shown
+
+
+def test_system_jobs_list_only_enabled_ones(tmp_path, monkeypatch):
+    import json
+    from types import SimpleNamespace
+
+    from nakama import devimpl, devreq, devtriage, rongo
+
+    fleet = SimpleNamespace(rongo={"enabled": False}, devreq={"triage": {"enabled": True}, "implement": {"enabled": True}},
+                            timezone="Asia/Tokyo", limits={})
+    for m in (rongo, devtriage, devimpl):
+        monkeypatch.setattr(m, "load_fleet", lambda: fleet)
+    monkeypatch.setattr(devreq, "FILE", tmp_path / "r.json")
+    monkeypatch.setattr(devtriage, "STATE", tmp_path / "triage.json")
+    monkeypatch.setattr(devimpl, "QUEUE", tmp_path / "devq")
+    (tmp_path / "triage.json").write_text(json.dumps({"running": True}))
+    jobs = {j["id"]: j for j in ui.system_jobs()}
+    assert set(jobs) == {"devtriage", "devbox"}  # rongo is off
+    assert jobs["devtriage"]["running"] and jobs["devbox"]["error"]  # no heartbeat from the devbox yet
