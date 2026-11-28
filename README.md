@@ -3,6 +3,7 @@
 Anthropic の記事「[日本の Anthropic BDR が Claude Managed Agents を活用して日々の業務をどのように運営しているか](https://claude.com/ja/resources/articles/how-an-anthropic-japan-business-development-representative-runs-his-day)」のワークフローを、**セルフホスト（自分の PC / コンテナ）で再現する** ためのテンプレートです。
 
 > 📘 **使い方・データの保存先と送り先・コネクタの追加方法は [docs/GUIDE.md](docs/GUIDE.md)** にまとめています（ダッシュボードの「使い方」タブでも読めます）。
+> 🚀 NAS での自動デプロイ（GitHub でマージすると数分で NAS に反映）の設定は、GUIDE の「自動テストと自動デプロイ（NAS・任意）」にあります。
 
 1 つの役割だけを持つエージェント 6 体（＋記事にない追加の Kintai / Kihyo）が、共有ナレッジベースを読み書きしながらスケジュール実行されます。成果物はすべて「下書き」で、送信・確定は人間が行います。
 
