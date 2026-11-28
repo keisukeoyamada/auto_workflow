@@ -2005,7 +2005,20 @@ function crApprovals(s) {
     : '<button class="btn primary" id="cr-approve">承認する</button>';
   return `<div class="row crapprs" style="margin-top:8px">${list}${btn}</div>`;
 }
-function crPaint() {
+// Redraws rebuild the table, and a rebuilt table box starts scrolled to the top: tables scroll inside their own
+// box (.tablewrap has max-height + overflow). Keep both the page and the table box where the user left them.
+function crKeepScroll(draw) {
+  const box = () => document.querySelector("#cr-table .tablewrap");
+  const b = box();
+  const keep = { page: window.scrollY || 0, top: b ? b.scrollTop : 0, left: b ? b.scrollLeft : 0 };
+  draw();
+  const a = box();
+  if (a) { a.scrollTop = keep.top; a.scrollLeft = keep.left; }
+  if (window.scrollTo) window.scrollTo(0, keep.page);
+}
+function crPaint() { crKeepScroll(crPaintNow); }
+function crPaintTable() { crKeepScroll(crPaintTableNow); }
+function crPaintNow() {
   const main = document.getElementById("main");
   const s = state.crData, c = state.crCfg, [ma, mb] = c.members;
   const upload = `<div class="card"><h2>明細 CSV を取り込む</h2>
@@ -2036,7 +2049,7 @@ function crPaint() {
     ${s.problems.length && !s.closed ? `<div class="cal-legend" style="clear:both">確定の前に: ${s.problems.map(esc).join(" / ")}</div>` : ""}
     ${s.source ? `<div class="cal-legend">取り込み元: ${esc(s.source.file)}（${esc((s.source.imported_at || "").replace("T", " "))}）</div>` : ""}</div>`;
   main.innerHTML = crSteps(s) + upload + head + tiles + `<div class="card" id="cr-table"></div>` + crMonthList();
-  crPaintTable();
+  crPaintTableNow();
 }
 // Every month side by side (newest first); a row opens that month.
 function crMonthList() {
@@ -2059,7 +2072,7 @@ function crMonthList() {
       ${ms.map(row).join("")}</table></div>
     <div class="cal-legend">行を押すとその月を開きます。請求額の ✓ = 明細の合計と一致、⚠ = 不一致。</div></details>`;
 }
-function crPaintTable() {
+function crPaintTableNow() {
   const el = document.getElementById("cr-table"); if (!el) return;
   const s = state.crData, c = state.crCfg, [ma, mb] = c.members;
   const f = state.crFilter || (state.crFilter = { who: "", open: false, q: "", ex: false });
