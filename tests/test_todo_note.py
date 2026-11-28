@@ -59,6 +59,7 @@ def test_devreq_keeps_open_items_open(tmp_path, monkeypatch):
     a = devreq.add("something")
     assert a["status"] == "open"
     devreq.update(a["id"], status="partial", note="half")
+    assert devreq.update(a["id"], pr="#17, #18")["pr"] == "#17, #18"  # the pull requests that resolved it
     assert devreq.load()[0]["status"] == "partial"
     with pytest.raises(ValueError):
         devreq.update(a["id"], status="finished")

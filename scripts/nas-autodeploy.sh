@@ -58,7 +58,10 @@ g merge --ff-only -q "origin/$BRANCH" || { log "cannot fast-forward to $REMOTE; 
 
 log "deploying $LOCAL -> $REMOTE"
 cd "$REPO"
-build_info() { GIT_COMMIT=$(g rev-parse HEAD); GIT_COMMIT_DATE=$(g log -1 --format=%cI); export GIT_COMMIT GIT_COMMIT_DATE; }
+build_info() {
+  GIT_COMMIT=$(g rev-parse HEAD); GIT_COMMIT_DATE=$(g log -1 --format=%cI); GIT_REPO_URL="https://github.com/$SLUG"
+  export GIT_COMMIT GIT_COMMIT_DATE GIT_REPO_URL
+}
 build_info   # the dashboard footer shows which commit is running
 if docker compose up -d --build >> "$LOG" 2>&1; then
   log "deployed $REMOTE"

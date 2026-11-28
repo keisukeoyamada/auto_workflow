@@ -213,7 +213,9 @@ def build_info() -> dict:
         data = data if isinstance(data, dict) else {}
     except (OSError, ValueError):
         data = {}
+    repo = str(data.get("repo") or "")
     return {"commit": str(data.get("commit") or "")[:40], "commit_date": str(data.get("commit_date") or ""),
+            "repo": repo if re.fullmatch(r"https://github\.com/[\w.-]+/[\w.-]+", repo) else "",
             "built_at": str(data.get("built_at") or ""), "started_at": STARTED_AT}
 
 
@@ -2419,7 +2421,7 @@ class _Handler(BaseHTTPRequestHandler):
             from . import devreq
             guest = self._role() == "guest"
             self._dispatch(lambda: {"requests": devreq.for_family() if guest else devreq.load(),
-                                    "statuses": devreq.STATUSES, "guest": guest})
+                                    "statuses": devreq.STATUSES, "guest": guest, "repo": build_info()["repo"]})
         elif url.path == "/api/cron/help":
             self._dispatch(lambda: {"help": cronja.HELP})
         elif url.path == "/api/overtime":
@@ -2554,7 +2556,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._dispatch(lambda: devreq.update(str(body.get("id", "")), body.get("status"), body.get("note"),
                                                  body.get("change"), body.get("usage"), body.get("instruction"),
                                                  None if body.get("family") is None else bool(body.get("family")),
-                                                 guest=self._role() == "guest"))
+                                                 guest=self._role() == "guest", pr=body.get("pr")))
         elif url.path == "/api/profile":
             self._dispatch(lambda: save_profile(str(body.get("name", "")), str(body.get("signature", ""))))
         elif url.path == "/api/run_all":
