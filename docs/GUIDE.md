@@ -300,7 +300,7 @@ sudo docker compose up -d --build
 sudo docker compose logs devbox --tail 20              # "waiting for jobs" が出れば準備完了
 ```
 
-`cat >` の 2 行は 1 行ずつ実行し、入力のあと Ctrl+D で終えます（まとめて貼ると、後ろの行までファイルに入ってしまいます）。要望タブに「devbox: 待機中」と出れば動いています。`fleet.yaml` の `devreq.implement` では `schedule`・`model`・`budget_usd`（1 件あたりの上限）・`rounds`（直す回数）を変えられます。
+Synology では、`compose.override.yaml` の devbox にも `group_add: ["101"]` を足してください（アプリと同じ。ないと「could not create work tree dir '/work/repo': Permission denied」で失敗します。`compose.override.example.yaml` 参照）。`cat >` の 2 行は 1 行ずつ実行し、入力のあと Ctrl+D で終えます（まとめて貼ると、後ろの行までファイルに入ってしまいます）。要望タブに「devbox: 待機中」と出れば動いています。`fleet.yaml` の `devreq.implement` では `schedule`・`model`・`budget_usd`（1 件あたりの上限）・`rounds`（直す回数）を変えられます。
 
 ## 7. コネクタを追加する
 
