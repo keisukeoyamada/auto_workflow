@@ -125,7 +125,7 @@ def _reminders() -> None:
         sent = {}
     key = f"overtime-{now.date().isoformat()}"
     if overtime.reminder_due(now) and key not in sent:
-        result = notify_all(fleet.notify, "今日の残業申請を上げてください（Nakama の 勤怠 > 残業 で申請文をコピーできます）", "🕕 残業申請")
+        result = notify_all(fleet.notify, "今日の残業申請を上げてください（ダッシュボードの 勤怠 > 残業 で申請文をコピーできます）", "🕕 残業申請")
         sent[key] = now.isoformat(timespec="minutes")
         sent_file.write_text(json.dumps(sent, indent=1), encoding="utf-8")
         log.info("overtime reminder sent: %s", result)
