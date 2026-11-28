@@ -341,6 +341,10 @@
         background: var(--panel); border: 1px solid var(--line); font-size: 13px; font-weight: 600; white-space: nowrap; }
   .me .av { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
             color: #fff; font-size: 13px; font-weight: 700; }
+  /* who someone is: one initial in their colour, the same everywhere (top right, approvals, 要望, 論語) */
+  .av { width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+        color: #fff; font-size: 11px; font-weight: 700; flex: none; vertical-align: middle; }
+  .uchip { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; vertical-align: middle; }
   .av-blue { background: #2f6fde; } .av-pink { background: #d6408f; } .av-green { background: #1f8a4c; }
   .av-orange { background: #c27400; } .av-purple { background: #7850dc; } .av-gray { background: #667085; }
   @media (max-width: 760px) { #nav { padding-right: 96px; } .me .nm { display: none; } .me { padding: 3px; } }
@@ -590,9 +594,20 @@ function setHTMLCached(id, html) {
   const el = document.getElementById(id);
   if (el && el.dataset.last !== html) { el.innerHTML = html; el.dataset.last = html; }
 }
+// ---------- people: initial + colour, one implementation for every tab ----------
+const USER_HEX = { blue: "#2f6fde", pink: "#d6408f", green: "#1f8a4c", orange: "#c27400", purple: "#7850dc", gray: "#667085" };
+// A login by role (owner / guest) from the overview; `name` overrides the shown name (e.g. who added a request).
+function person(role, name) {
+  const p = ((state.overview || {}).people || []).find(x => x.role === role)
+    || { role, name: role === "guest" ? "家族" : "オーナー", color: role === "guest" ? "pink" : "blue" };
+  return name ? { ...p, name } : p;
+}
+const userHex = u => USER_HEX[(u || {}).color] || USER_HEX.gray;
+const avatar = u => `<span class="av av-${esc(USER_HEX[u.color] ? u.color : "gray")}" title="${esc(u.name)}">${esc([...(u.name || "?")][0])}</span>`;
+const userChip = (u, after = "") => `<span class="uchip">${avatar(u)}${esc(u.name)}${after}</span>`;
 function meBadge(me) {  // who is logged in: initial in a coloured circle + name (top right); click for logout
   if (!me) return "";
-  return `<details class="memenu"><summary class="me" title="ログイン中: ${esc(me.name)}"><span class="av av-${esc(me.color)}">${esc([...me.name][0] || "?")}</span><span class="nm">${esc(me.name)}</span></summary>
+  return `<details class="memenu"><summary class="me" title="ログイン中: ${esc(me.name)}">${avatar(me)}<span class="nm">${esc(me.name)}</span></summary>
     <div class="menu"><div class="cal-legend" style="margin:0 0 8px">ログイン中: ${esc(me.name)}</div>
       <form method="post" action="/logout"><button class="btn" type="submit" style="width:100%">ログアウト</button></form></div></details>`;
 }
@@ -1338,22 +1353,22 @@ async function renderDevreq() {
     const items = r.requests.filter(x => x.status === "done" || x.status === "partial");
     main.innerHTML = tiles + `<div class="card"><h2>リリースノート（${items.length} 件） <span class="right">${viewBtn}</span></h2>
       ${items.map(x => `<div style="border-bottom:1px solid var(--line);padding:10px 0">
-        <div><strong>${esc(x.id)} ${esc(x.text)}</strong> ${pill(DQ[x.status][0], DQ[x.status][1])}</div>
+        <div>${byWho(x)} <strong>${esc(x.id)} ${esc(x.text)}</strong> ${pill(DQ[x.status][0], DQ[x.status][1])}</div>
         <div class="md" style="margin-top:4px">${x.instruction ? `<p><strong>あなたの指示:</strong> ${esc(x.instruction)}</p>` : ""}${x.pr ? `<p><strong>対応した PR:</strong> ${dqPrLinks(x.pr, r.repo)}</p>` : ""}<p><strong>変更内容:</strong> ${esc(x.change || "—")}</p><p><strong>使い方:</strong> ${esc(x.usage || "—")}</p></div></div>`).join("")}</div>`;
     return;
   }
   const rows = r.requests.filter(x => state.showDone || (x.status !== "done" && x.status !== "dropped")).sort((a, b) => order[a.status] - order[b.status] || a.id.localeCompare(b.id));
-  const byWho = x => x.by === "guest" ? `<span class="pill">${esc(x.by_name || "家族")}</span>` : "";
+  const byWho = x => userChip(person(x.by === "guest" ? "guest" : "owner", x.by_name));
   main.innerHTML = tiles + `<div class="card"><h2>要望・対応状況 <span class="right" style="font-weight:400;font-size:12px">${viewBtn}
       <label style="cursor:pointer;margin-left:8px"><input type="checkbox" id="show-done" ${state.showDone ? "checked" : ""}> 完了・取り下げも表示</label></span></h2>
       ${r.guest ? '<div class="cal-legend" style="margin:0 0 8px">家族の要望だけが表示されます。行を押すと、メモへの返信や対応内容が見られます。やめたいときは状態を「取り下げ」に。</div>' : ""}
       <div class="row" style="margin-bottom:8px"><input id="dq-text" placeholder="新しい要望" style="flex:1;min-width:200px"><button class="btn primary" id="dq-add">追加（オープン）</button></div>
-      <div class="tablewrap"><table><tr><th>#</th><th>状態</th><th>要望（押すと変更内容・使い方）</th>${fam ? '<th title="チェックすると家族のログインにも表示">家族</th>' : ""}<th>${r.guest ? "指示・返信" : "あなたの指示"}</th><th>メモ（Claude）</th></tr>${rows.map(x => `<tr data-dqrow="${esc(x.id)}" style="cursor:pointer;background:${DQ_BG[x.status] || ""}">
+      <div class="tablewrap"><table><tr><th>#</th><th>状態</th><th>だれ</th><th>要望（押すと変更内容・使い方）</th>${fam ? '<th title="チェックすると家族のログインにも表示">家族</th>' : ""}<th>${r.guest ? "指示・返信" : "あなたの指示"}</th><th>メモ（Claude）</th></tr>${rows.map(x => `<tr data-dqrow="${esc(x.id)}" style="cursor:pointer;background:${DQ_BG[x.status] || ""}">
         <td class="muted">${esc(x.id)}</td>
         <td><select data-dq="${esc(x.id)}">${r.statuses.map(s => `<option value="${s}" ${s === x.status ? "selected" : ""}>${DQ[s][0]}</option>`).join("")}</select></td>
-        <td>${esc(x.text)} ${byWho(x)}${x.pr ? ` <span class="cal-legend" style="margin:0">PR ${dqPrLinks(x.pr, r.repo)}</span>` : ""}</td>${fam ? `<td><input type="checkbox" data-dqfam="${esc(x.id)}" ${x.family ? "checked" : ""} title="家族のログインにも表示"></td>` : ""}
+        <td>${byWho(x)}</td><td>${esc(x.text)}${x.pr ? ` <span class="cal-legend" style="margin:0">PR ${dqPrLinks(x.pr, r.repo)}</span>` : ""}</td>${fam ? `<td><input type="checkbox" data-dqfam="${esc(x.id)}" ${x.family ? "checked" : ""} title="家族のログインにも表示"></td>` : ""}
         <td style="font-weight:600">${esc(x.instruction || "")}</td><td class="muted">${esc(x.note)}</td></tr>
-        ${state.dqOpen === x.id ? `<tr data-attach><td></td><td colspan="${fam ? 5 : 4}"><div class="card" style="margin:4px 0">
+        ${state.dqOpen === x.id ? `<tr data-attach><td></td><td colspan="${fam ? 6 : 5}"><div class="card" style="margin:4px 0">
           <div class="cal-legend" style="margin:0 0 2px;font-weight:600">${r.guest ? "指示・メモへの返信" : "あなたの指示"}（Claude はここを最優先で読む）</div><textarea id="dq-instr" style="min-height:50px">${esc(x.instruction || "")}</textarea>
           <div class="cal-legend" style="margin:6px 0 2px">変更内容（どう修正したか）</div><textarea id="dq-change" style="min-height:70px">${esc(x.change || "")}</textarea>
           <div class="cal-legend" style="margin:6px 0 2px">対応した PR（#17 のように。複数はカンマ区切り。URL でも可）</div><input id="dq-pr" value="${esc(x.pr || "")}" placeholder="#17" style="width:100%">
@@ -1361,7 +1376,7 @@ async function renderDevreq() {
           <div class="cal-legend" style="margin:6px 0 2px">メモ</div><input id="dq-note" value="${esc(x.note || "")}" style="width:100%">
           <div style="margin-top:6px"><button class="btn primary" id="dq-save" data-id="${esc(x.id)}">保存</button>
             <span class="cal-legend">更新 ${esc((x.updated || "").replace("T", " "))}</span></div></div></td></tr>` : ""}`).join("")
-        || `<tr><td colspan="${fam ? 6 : 5}">未対応の要望はありません 🎉</td></tr>`}</table></div></div>`;
+        || `<tr><td colspan="${fam ? 7 : 6}">未対応の要望はありません 🎉</td></tr>`}</table></div></div>`;
 }
 document.addEventListener("change", async ev => {
   if (ev.target.dataset && ev.target.dataset.dqfam) {
@@ -1922,7 +1937,7 @@ async function renderRongo(id) {
         <button class="rg-star ${c.fav_on ? "on" : ""}" id="rg-fav" data-id="${esc(c.id)}" data-on="${c.fav_on ? "1" : ""}"
           title="${c.fav_on ? "お気に入りから外す" : "お気に入りに入れる"}" aria-label="お気に入り">${c.fav_on ? "★" : "☆"}</button>
         ${c.read_on ? `<span class="pill ok">${esc(c.read_on)} に読了</span>` : isNext ? '<span class="pill open">今日の 1 章</span>' : ""}
-        ${(c.read_by || []).filter(b => b.role !== r.user).map(b => `<span class="pill" style="background:${RG_HEX[(rgPerson(r, b.role) || {}).color] || "#667085"};color:#fff">${esc((rgPerson(r, b.role) || {}).name || "")} ${esc(b.on)} に読了</span>`).join("")}
+        ${(c.read_by || []).filter(b => b.role !== r.user).map(b => `<span class="pill">${userChip(rgPerson(r, b.role), ` ${esc(b.on)} に読了`)}</span>`).join(" ")}
         <span class="right">${r.prev_id ? `<button class="btn" data-rgid="${esc(r.prev_id)}">◀ 前</button>` : ""}
           ${r.following_id ? `<button class="btn" data-rgid="${esc(r.following_id)}">次 ▶</button>` : ""}
           ${!isNext && r.next_id ? `<button class="btn" data-rgid="">今日の章へ</button>` : ""}</span></h2>
@@ -1934,7 +1949,7 @@ async function renderRongo(id) {
     <div class="tiles">
       <div class="tile"><div class="label">読んだ章（自分）</div><div class="value">${r.read} / ${r.total}</div>
         <div class="meter"><div style="width:${pct}%"></div></div><div class="cal-legend" style="margin:4px 0 0">${pct}%
-          ${(r.readers || []).filter(p => !p.me).map(p => `・${esc(p.name)} ${p.read} 章`).join("")}</div></div>
+          ${(r.readers || []).filter(p => !p.me).map(p => `　${userChip(p, ` ${p.read} 章`)}`).join("")}</div></div>
       <div class="tile"><div class="label">連続日数</div><div class="value">${r.streak} 日</div>
         <div class="cal-legend" style="margin:4px 0 0">${r.read_today ? `今日 ${r.read_today} 章読みました` : "今日はまだです"}</div></div>
       <div class="tile"><div class="label">解説が準備済みの未読</div><div class="value">${r.notes_ready} 章</div></div>
@@ -1946,20 +1961,19 @@ async function renderRongo(id) {
         `<button class="rg-cell ${(x.read_by || []).length ? "by" : ""} ${x.fav ? "fav" : ""} ${x.id === c.id ? "cur" : ""}" data-rgid="${esc(x.id)}" style="${rgCellBg(r, x.read_by || [])}" title="${esc(b.name)} 第${x.no}章${rgWho(r, x.read_by || [])}${x.fav ? "（お気に入り）" : ""}">${x.no}</button>`).join("")}</div>
         <span class="cnt cal-legend" style="margin:0">${n} / ${b.total}</span></div>`;
     }).join("")}</div>
-      <div class="cal-legend">${(r.readers || []).map(p => `<span class="rg-who"><i style="background:${RG_HEX[p.color] || "#667085"}"></i>${esc(p.name)}${p.me ? "（自分）" : ""}が読んだ</span>`).join("")}
+      <div class="cal-legend">${(r.readers || []).map(p => `<span class="rg-who">${userChip(p, p.me ? "（自分）" : "")}が読んだ</span>`).join("")}
         ${(r.readers || []).length > 1 ? `<span class="rg-who"><i style="${rgCellBg(r, r.readers.map(p => p.role))}"></i>2 人とも</span>` : ""}</div>
       <div class="cal-legend">マスを押すとその章を開きます（色 = 読んだ人、★の印 = 自分のお気に入り）。原文: ${esc(r.source)}。書き下し文・現代語訳・教訓は Claude が作ったもので、誤りがあり得ます。</div></div>`;
   if (g.running) { clearTimeout(state.rgPoll); state.rgPoll = setTimeout(() => { if (state.tab === "rongo") renderRongo(c.id); }, 5000); }
 }
 // Who read a chapter, colour-coded per login (the colours of the name badge at the top right).
-const RG_HEX = { blue: "#2f6fde", pink: "#d6408f", green: "#1f8a4c", orange: "#c27400", purple: "#7850dc", gray: "#667085" };
-const rgPerson = (r, role) => (r.readers || []).find(p => p.role === role);
+const rgPerson = (r, role) => (r.readers || []).find(p => p.role === role) || person(role);
 function rgCellBg(r, by) {
-  const cs = by.map(role => RG_HEX[(rgPerson(r, role) || {}).color] || RG_HEX.gray);
+  const cs = by.map(role => userHex(rgPerson(r, role)));
   if (!cs.length) return "";
   return cs.length === 1 ? `background:${cs[0]}` : `background:linear-gradient(135deg,${cs[0]} 50%,${cs[1]} 50%)`;
 }
-const rgWho = (r, by) => by.length ? "（読んだ: " + by.map(role => (rgPerson(r, role) || {}).name || role).join("・") + "）" : "";
+const rgWho = (r, by) => by.length ? "（読んだ: " + by.map(role => rgPerson(r, role).name).join("・") + "）" : "";
 // Starred chapters with their translation and lesson, so they can be re-read at a glance.
 function rgFavorites(r, c) {
   const favs = r.favorites || [];
@@ -2048,7 +2062,7 @@ function crApprovals(s) {
   const me = (state.overview || {}).me || { role: "owner" };
   const list = (s.approvers || []).map(u => {
     const a = (s.approvals || {})[u.role];
-    return `<span class="crappr ${a ? "ok" : ""}"><span class="av av-${esc(u.color)}">${esc([...u.name][0] || "?")}</span>${esc(u.name)}
+    return `<span class="crappr ${a ? "ok" : ""}">${userChip(u)}
       ${a ? `<b>承認済み</b> ${esc(crTime(a.at))}` : "未承認"}</span>`;
   }).join("");
   const mine = (s.approvals || {})[me.role];
