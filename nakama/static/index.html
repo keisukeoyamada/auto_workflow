@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ダッシュボード</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232f6fde'/%3E%3Crect x='10' y='10' width='13' height='12' rx='3' fill='%23fff'/%3E%3Crect x='26' y='10' width='13' height='12' rx='3' fill='%23fff' opacity='.75'/%3E%3Crect x='42' y='10' width='12' height='12' rx='3' fill='%23ffb020'/%3E%3Crect x='10' y='27' width='44' height='27' rx='4' fill='%23fff' opacity='.18'/%3E%3Crect x='15' y='40' width='6' height='10' rx='1.5' fill='%23fff'/%3E%3Crect x='25' y='33' width='6' height='17' rx='1.5' fill='%23fff'/%3E%3Crect x='35' y='37' width='6' height='13' rx='1.5' fill='%23fff'/%3E%3Crect x='45' y='31' width='6' height='19' rx='1.5' fill='%23ffb020'/%3E%3C/svg%3E">
 <style>
   :root {
     --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085; --line: #e3e6eb;
@@ -368,7 +369,7 @@ addEventListener("resize", pinNav); addEventListener("load", pinNav);
 const TABS = [
   { id: "home", label: "ダッシュボード", desc: "状態・タスク・不在をひと目で。" },
   { id: "tasks", label: "タスク", badge: c => c.my_tasks_open, desc: "自分のタスク（🗂 Planner / 🔁 ルーティン / 📓 ノート / 🧩 WBS）。行を押すと作業メモ。" },
-  { id: "drafts", label: "下書き", desc: "エージェントが作ったメールの下書き。読んで手直しし、自分のメーラーから送る（Nakama は送信しない）。", kind: "drafts", badge: c => c.drafts },
+  { id: "drafts", label: "下書き", desc: "エージェントが作ったメールの下書き。読んで手直しし、自分のメーラーから送る（このアプリは送信しない）。", kind: "drafts", badge: c => c.drafts },
   { id: "action_items", label: "要対応", desc: "エージェントが自分では判断せずに回してきた案件。対応したら done にする。", kind: "action_items", badge: c => c.action_items_open },
   { id: "reports", label: "レポート", desc: "エージェントごとの作業報告。", kind: "reports" },
   { id: "inbox", label: "受信", desc: "Henji が返信案を作る受信メール。", kind: "inbox" },
@@ -378,7 +379,7 @@ const TABS = [
   { id: "requests", label: "変更依頼", desc: "Coordinator への「指示をこう変えて」という依頼。書くと各エージェントの振る舞いが変わる。", kind: "requests", badge: c => c.requests_open },
   { id: "attendance", label: "勤怠", desc: "チームの不在かぶりと、自分の勤怠の貼り付け文（Kintai）。", kind: "attendance" },
   { id: "knowledge", label: "ナレッジ", desc: "全エージェントが読むルール・文体。ここを直すのが一番効く。", kind: "knowledge" },
-  { id: "devreq", label: "要望", desc: "Nakama（このシステム）への改善要望と対応状況。" },
+  { id: "devreq", label: "要望", desc: "このシステムへの改善要望と対応状況。" },
   { id: "decks", label: "資料", desc: "定例資料のテンプレ保管と添削（Tensaku）。" },
   { id: "agenda", label: "持ち越し課題", desc: "定例の持ち越し課題。次回触れるものを一覧に。" },
   { id: "completed", label: "完了済み", desc: "完了したものを一か所に。押すと保存場所へ。" },
@@ -432,6 +433,11 @@ async function api(path, body) {
   }
   const res = await fetch(path, opt);
   const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  // The server issues a new token on every start: reload once to pick it up (guarded against reload loops)
+  if (res.status === 403 && /bad token/.test(data.error || "")) {
+    let last = 0; try { last = Number(sessionStorage.getItem("tokenReload") || 0); } catch {}
+    if (Date.now() - last > 30000) { try { sessionStorage.setItem("tokenReload", String(Date.now())); } catch {} location.reload(); }
+  }
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }
@@ -896,7 +902,7 @@ function renderHome() {
       ${tile("今日が期日", o.checks.duetoday, "tasks")}
       ${tile("🔁 今月のルーティン残", o.checks.routine_left, "routine")}
       ${tile("WBS の転記待ち", o.checks.wbs_pending, "wbs")}
-      ${tile("🛠 システム改善要望（Nakama）", o.checks.devreq_open, "devreq")}` : ""}
+      ${tile("🛠 システム改善要望", o.checks.devreq_open, "devreq")}` : ""}
     </div>
     <div class="card" id="briefcard"><details ${store.get("briefOpen") === "1" ? "open" : ""} id="brief-details"><summary><strong>☀️ 今日のブリーフ</strong>
       <span class="cal-legend" id="brief-date" style="display:inline;margin-left:8px"></span>
@@ -1161,7 +1167,7 @@ function unifiedTable(d, compact = false) {
       return `<tr class="${r.star ? "star" : ""}" data-note="${esc(r.key)}" data-notetitle="${esc(r.title)}" title="${esc(src)}${r.memo ? " / " + esc(r.memo) : ""}" style="cursor:pointer">
         <td class="src"><button class="ok-btn" data-taskstar="${i}" title="${r.star ? "★ を外す" : "★ で一番上に"}" style="border:0;padding:0 2px">${r.star ? "★" : "☆"}</button>${icon}</td>
         <td>${pill(label, cls)}</td><td>${name}${rel}${compact && r.notes ? ` <span class="muted">📝${r.notes}</span>` : ""}</td>
-        <td class="due pick" data-duecell="${i}" title="${r.source === "planner" ? "押すと期日を変更（Nakama 上のみ。Planner 側も直すこと！）" : r.source === "wbs" ? "押すと終了予定を変更（WBS タブの転記で Excel へ）" : "押すとカレンダーで期日を変更"}" style="${overdue ? "color:var(--bad);font-weight:600" : ""}">${esc(md(r.due))}${overdue ? " ⚠" : ""}${r.planner_due !== undefined && r.planner_due !== r.due ? `<span title="Planner 上は ${esc(r.planner_due || "期日なし")}。Planner 側も直すこと！" style="color:var(--warn,#b7791f)"> ✎</span>` : ""}${compact && r.bd ? `<span class="muted"> ${r.bd}営</span>` : ""}</td>
+        <td class="due pick" data-duecell="${i}" title="${r.source === "planner" ? "押すと期日を変更（このアプリ上のみ。Planner 側も直すこと！）" : r.source === "wbs" ? "押すと終了予定を変更（WBS タブの転記で Excel へ）" : "押すとカレンダーで期日を変更"}" style="${overdue ? "color:var(--bad);font-weight:600" : ""}">${esc(md(r.due))}${overdue ? " ⚠" : ""}${r.planner_due !== undefined && r.planner_due !== r.due ? `<span title="Planner 上は ${esc(r.planner_due || "期日なし")}。Planner 側も直すこと！" style="color:var(--warn,#b7791f)"> ✎</span>` : ""}${compact && r.bd ? `<span class="muted"> ${r.bd}営</span>` : ""}</td>
         ${compact ? "" : `<td>${bd}</td><td>${r.notes ? "📝 " + r.notes : ""}</td>
         <td style="white-space:nowrap">${canDone ? `<button class="ok-btn" data-taskdone="${i}" data-done="${done ? "0" : "1"}" title="${done ? "未完了に戻す" : "完了にする"}">${done ? "↩" : "✓"}</button>` : ""}
           <button class="ok-btn" data-assist="task" data-row="${i}" title="Claude に相談（返答案・クローズ案）">🤖</button></td>`}</tr>`;
@@ -1756,7 +1762,7 @@ function ganttSvg(sh, big) {
 }
 
 async function wbsWrite(sheet, row, field, value, fileId, no) {
-  const reason = "";  // staged edits get "Nakama の画面で更新" as their change-log reason
+  const reason = "";  // staged edits get "このアプリの画面で更新" as their change-log reason
   const id = fileId || state.wbsSel;
   const seen = no || ((state.wbsData?.sheets || []).find(s => s.name === sheet)?.rows || []).find(r => r.row === row)?.no || "";
   try { const r = await api("/api/wbs/update", { id, sheet, row, field, value, reason, no: seen });
@@ -2245,7 +2251,7 @@ async function renderRoutine() {
       <div class="cal-legend"><span>● 実施枠　✓ 完了</span><span style="color:var(--bad)">■ 祝日</span><span>灰 = 土日</span><span>作業名を押すと詳細・状態・メモ</span>
         <span>定義の編集は設定タブの routines.json</span></div></div>
     <div class="split"><div class="card" id="rdetail"><div class="empty">左上の表で作業名を押してください</div></div>
-      <div class="card"><h2>祝日・会社休日（Nakama 全体で使用）</h2>
+      <div class="card"><h2>祝日・会社休日（アプリ全体で使用）</h2>
         <div class="row"><input type="date" id="h-date"><input id="h-name" placeholder="名称（例: 年末年始休暇）"><input id="h-note" placeholder="備考">
           <button class="btn primary" id="h-add">追加・更新</button></div>
         <div class="row" style="margin-top:6px"><button class="btn" id="h-import">内閣府の CSV から国民の祝日を取り込む</button>
@@ -2417,10 +2423,10 @@ async function renderKihyo() {
     <div class="tiles">
       <div class="tile"><div class="label">状態</div><div class="value" style="font-size:18px">${k.running ? "実行中" : k.enabled ? "有効" : "無効"}</div></div>
       <div class="tile"><div class="label">次の定時実行</div><div class="value" style="font-size:18px">${esc(k.next || "—")}</div></div>
-      <div class="tile"><div class="label">Nakama での最終成功</div><div class="value" style="font-size:18px">${esc((k.last_success || "まだ").replace("T", " ").slice(5, 16))}</div></div>
+      <div class="tile"><div class="label">このアプリでの最終成功</div><div class="value" style="font-size:18px">${esc((k.last_success || "まだ").replace("T", " ").slice(5, 16))}</div></div>
       <div class="tile"><div class="label">tickets/ 直下</div><div class="value" style="font-size:14px">${esc(k.root_ticket || "なし（次の昇格が可能）")}</div></div>
     </div>
-    <div class="card"><h2>手動起票（Claude が draft → Nakama が検証 → あなたが承認）</h2>
+    <div class="card"><h2>手動起票（Claude が draft → このアプリが検証 → あなたが承認）</h2>
       <textarea id="kh-text" placeholder="議事メモやタスクの箇条書きを貼り付け（例: ○○の手順書更新 <山田：12/5>）"></textarea>
       <div class="row" style="margin-top:8px"><button class="btn primary" id="kh-start" data-mode="text">貼り付けた内容から draft を作る</button>
         <span class="cal-legend" style="margin:0">または検証用:</span>
@@ -2429,7 +2435,7 @@ async function renderKihyo() {
       <div class="cal-legend">Claude は昇格できないモードで動きます。昇格は下のレビューであなたが承認したものだけ、重複・形式チェックを通った場合に限ります。</div></div>
     <div class="split"><div class="list">${jobs || '<div class="empty">手動ジョブはまだありません</div>'}</div>
       <div class="viewer" id="kh-viewer"><div class="empty">左のジョブを選ぶとレビューできます</div></div></div>
-    <div class="card" style="margin-top:16px"><h2>サイクル履歴（Nakama）</h2>${cycles ? `<div class="tablewrap"><table><tr><th>サイクル</th><th>結果</th><th>起票</th><th>Drop</th><th>要約</th></tr>${cycles}</table></div>` : '<div class="empty">Nakama での定時実行はまだありません（明日 12:00 が初回）</div>'}</div>
+    <div class="card" style="margin-top:16px"><h2>サイクル履歴</h2>${cycles ? `<div class="tablewrap"><table><tr><th>サイクル</th><th>結果</th><th>起票</th><th>Drop</th><th>要約</th></tr>${cycles}</table></div>` : '<div class="empty">このアプリでの定時実行はまだありません（明日 12:00 が初回）</div>'}</div>
     <div class="split"><div class="list">${logs || '<div class="empty">ログなし</div>'}</div>
       <div class="viewer md" id="kh-log"><div class="empty">起票ログ（アプリ版を含む logs/report_*.md）を選ぶと表示します</div></div></div>
     <div class="card" style="margin-top:16px"><details ${k.about ? "" : "open"}><summary><strong>これまでの経緯と仕組み</strong></summary>
@@ -2491,8 +2497,8 @@ async function renderCosts() {
         <div class="cal-legend" style="margin:4px 0 0">月末予測 ${usd(c.month_forecast)}・今日 ${usd(c.today)}・${c.month_runs} 回</div></div>
       ${plans}
     </div>
-    <div class="card"><h2>日別（今月・Nakama の実行分）</h2><div style="display:flex;gap:2px;height:140px;align-items:flex-end">${bars || '<div class="empty">記録なし</div>'}</div>
-      <div class="cal-legend">API 換算 = 各実行で CLI が報告する推定額（従量課金 API だったらいくらか）。サブスク利用では実際には請求されません。入力が無くスキップした回は 0 円です。この会話など Nakama 以外の Claude 利用は含みません。</div></div>
+    <div class="card"><h2>日別（今月・このアプリの実行分）</h2><div style="display:flex;gap:2px;height:140px;align-items:flex-end">${bars || '<div class="empty">記録なし</div>'}</div>
+      <div class="cal-legend">API 換算 = 各実行で CLI が報告する推定額（従量課金 API だったらいくらか）。サブスク利用では実際には請求されません。入力が無くスキップした回は 0 円です。この会話など このアプリ以外の Claude 利用は含みません。</div></div>
     <div class="split"><div class="card"><h2>エージェント別（今月）</h2><table><tr><th>エージェント</th><th>API 換算</th><th>回数</th></tr>${agents}</table></div>
       <div class="card"><h2>ライセンスの前提</h2><div class="md">${renderMarkdown(c.plans_help)}</div></div></div>`;
 }

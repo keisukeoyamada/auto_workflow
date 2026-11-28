@@ -392,7 +392,7 @@ def _set_cell(xml: str, ref: str, new_cell: str, allow_formula: bool = False) ->
         old = cell_m.group(0)
         if "<f" in old:
             if not allow_formula:
-                raise WbsError("このセルは数式です。Nakama からは変更しません（Excel で直接編集してください）")
+                raise WbsError("このセルは数式です。ダッシュボードからは変更しません（Excel で直接編集してください）")
             if re.search(r'<f\b[^>]*\bt="shared"[^>]*\bref=', old):
                 raise WbsError("このセルは共有数式の起点です。Excel で直接編集してください")
         new_row = row_xml[:cell_m.start()] + new_cell + row_xml[cell_m.end():]
@@ -535,7 +535,7 @@ def _md_log(cells: list[Any]) -> None:
     new = not CHANGES_MD.exists()
     with CHANGES_MD.open("a", encoding="utf-8") as f:
         if new:
-            f.write("# WBS の変更ログ（Nakama）\n\n| 日時 | 操作 | ファイル | WBS | 項目 | 修正前 | 修正後 | 理由・結果 |\n"
+            f.write("# WBS の変更ログ（ダッシュボード）\n\n| 日時 | 操作 | ファイル | WBS | 項目 | 修正前 | 修正後 | 理由・結果 |\n"
                     "|---|---|---|---|---|---|---|---|\n")
         f.write("| " + " | ".join(str(c).replace("|", "/").replace("\n", " ") for c in cells) + " |\n")
 
@@ -563,7 +563,7 @@ def stage(fid: str, sheet: str, row: int, field: str, value: str, reason: str = 
         raise WbsError("その行は WBS の作業行ではありません")
     if expected_no and item["no"] != expected_no:
         raise WbsError(f"Excel の行がずれています（{row} 行目は今 {item['no'] or '空'}）。画面を再読み込みしてください")
-    reason = (reason or "").strip()[:500] or "Nakama の画面で更新"
+    reason = (reason or "").strip()[:500] or "ダッシュボードで更新"
     now = _now()
     with _stage_lock:
         items = [p for p in load_pending()

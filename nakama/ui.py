@@ -958,9 +958,9 @@ def data_sources() -> dict:
     cfg = load_fleet().ticketing or {}
     return {
         "routine": read(WORKSPACE_DIR / "routine" / "source.json") + [
-            {"what": "定義（Nakama の正本）", "kind": "file", "path": str(WORKSPACE_DIR / "routine" / "routines.json")}],
+            {"what": "定義（ダッシュボードの正本）", "kind": "file", "path": str(WORKSPACE_DIR / "routine" / "routines.json")}],
         "holidays": read(HOLIDAYS_FILE.with_name("holidays.source.json")) + [
-            {"what": "祝日一覧（Nakama の正本）", "kind": "file", "path": str(HOLIDAYS_FILE)}],
+            {"what": "祝日一覧（ダッシュボードの正本）", "kind": "file", "path": str(HOLIDAYS_FILE)}],
         "tasks": ([{"what": "Planner（起票履歴 × planner_state）", "kind": "folder", "path": str(cfg["base"])}] if cfg.get("base") else [])
                  + ([{"what": "手書き ToDo（□/■/★ で双方向に更新）", "kind": "file", "path": str(todo_note.note_path())}]
                     if todo_note.note_path() else [])
@@ -1097,7 +1097,7 @@ def set_task_due(body: dict) -> dict:
             data.pop(key, None)
         PLANNER_DUE_FILE.parent.mkdir(parents=True, exist_ok=True)
         PLANNER_DUE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-        return {"ok": True, "due": due, "note": "Nakama 上の期日を変えました。Planner 側も直してください"}
+        return {"ok": True, "due": due, "note": "ダッシュボード上の期日を変えました。Planner 側も直してください"}
     if source == "wbs":
         from . import wbs
 
@@ -1543,7 +1543,7 @@ def notifications(include_acked: bool = False, samples: bool = True) -> dict:
     # q103: a small nudge before lunch on business days; open requests are applied together during the break
     if bizdays.is_business_day(today) and "11:30" <= now.strftime("%H:%M") < "12:30":
         n_open = sum(1 for q in devreq.load() if q.get("status") in ("open", "partial"))
-        add("lunch", f"そろそろお昼ですか？ 🍙 Nakama の改善要望 {n_open} 件", key=f"lunch-{today.isoformat()}", when=now.isoformat(timespec="minutes"),
+        add("lunch", f"そろそろお昼ですか？ 🍙 システム改善要望 {n_open} 件", key=f"lunch-{today.isoformat()}", when=now.isoformat(timespec="minutes"),
             tab="devreq", group="おしらせ",
             detail="お昼に行くときに Claude Code へ「昼休み行く」と伝えると、未対応の要望をまとめて反映しておきます。")
 
@@ -1788,13 +1788,13 @@ def date_today() -> str:
 
 # ---------- costs page ----------
 PLANS_HELP = """\
-- **① 実際の利用（API 換算）**: Nakama 経由のすべての Claude 利用（エージェントの定期・手動実行、右のチャット、🤖 相談・アシスト）で
+- **① 実際の利用（API 換算）**: このダッシュボード経由のすべての Claude 利用（エージェントの定期・手動実行、右のチャット、🤖 相談・アシスト）で
   Claude CLI が報告する推定額の合計。従量課金の API で動かした場合の目安。Claude Code を直接使った分（このリポジトリの開発など）は含まない。
 - **ライセンス**: `config/fleet.yaml` の `cost_plans` で定義（設定タブで編集）。月額 =
   `基本料 + 追加利用 − 会社負担`（会社負担は基本料＋追加利用を上限）。
   - `included`: 基本料に含まれる利用額（API 換算、ドル）。空なら「基本料内で賄われる」とみなし追加利用 0。
   - `overage_rate`: included を超えた API 換算 1 ドルあたりの追加料金。
-- 社内ダッシュボードの数値（Nakama 以外の利用も含む）とは一致しません。Nakama 分の比較用です。
+- 社内ダッシュボードの数値（ほかの利用も含む）とは一致しません。このダッシュボード分の比較用です。
 """
 
 
@@ -2085,11 +2085,15 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return False
         if api and not hmac.compare_digest(self.headers.get("X-Nakama-Token", ""), self.token):
+            # a tab left open across a restart still polls (with the old token): it is open, so count it
+            _mark_ui_seen()
             self._send(403, {"error": "bad token (reload the page)"})
             return False
         if api and role == "guest" and not self._guest_allowed(path):
             self._send(403, {"error": "forbidden for this login"})
             return False
+        if api:
+            _mark_ui_seen()
         return True
 
     # --- responses ---
@@ -2348,7 +2352,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._dispatch(lambda: (overtime.delete(str(body.get("date", "")), str(body.get("start", ""))) or {"ok": True}))
         elif url.path == "/api/notify/test":
             from .notify import notify_all
-            self._dispatch(lambda: notify_all(load_fleet().notify, "Nakama からのテスト通知です。", "Nakama テスト"))
+            self._dispatch(lambda: notify_all(load_fleet().notify, "ダッシュボードからのテスト通知です。", "テスト通知"))
         elif url.path == "/api/tasks/due":
             self._dispatch(lambda: set_task_due(body))
         elif url.path == "/api/wbs/update":
@@ -2532,13 +2536,41 @@ def _warm_wbs() -> None:
         time.sleep(wbs.DISCOVER_TTL - 60)
 
 
+# An open dashboard tab polls the API, and after a restart it reconnects by itself, so
+# opening the browser again would only add a duplicate tab. We remember the last API hit.
+UI_SEEN_FILE = WORKSPACE_DIR / ".ui_last_seen"
+UI_SEEN_WINDOW = 15 * 60   # seconds: a tab seen this recently is assumed to still be open
+_ui_seen_at = 0.0
+
+
+def _mark_ui_seen() -> None:
+    global _ui_seen_at
+    now = time.time()
+    if now - _ui_seen_at < 30:  # touch the file at most every 30 s
+        return
+    _ui_seen_at = now
+    try:
+        UI_SEEN_FILE.touch()
+    except OSError:
+        log.debug("could not touch %s", UI_SEEN_FILE, exc_info=True)
+
+
+def _tab_recently_open() -> bool:
+    try:
+        return time.time() - UI_SEEN_FILE.stat().st_mtime < UI_SEEN_WINDOW
+    except OSError:
+        return False
+
+
 def serve_ui(host: str = "127.0.0.1", port: int = 8765, background: bool = False,
              open_browser: bool = False) -> ThreadingHTTPServer:
     server = make_server(host, port)  # the socket is bound here, so the browser can connect right away
     url = f"http://localhost:{port}/"
     log.info("Nakama UI: %s", url)
     threading.Thread(target=_warm_wbs, daemon=True).start()
-    if open_browser:
+    if open_browser and _tab_recently_open():
+        log.info("a dashboard tab was active %ss ago; not opening another one", int(time.time() - UI_SEEN_FILE.stat().st_mtime))
+    elif open_browser:
         import webbrowser
 
         try:

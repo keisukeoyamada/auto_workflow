@@ -257,7 +257,7 @@ async def run_agent(name: str, *, force: bool = False, dry_run: bool = False, ex
     for item in sorted(_action_items() - items_before):
         tag = f"<@{mention}> " if mention else ""
         post_to_slack(webhook, f"[action-needed] {tag}`workspace/action_items/{item}` ({name})")
-        post_to_teams(fleet.notify.get("teams_webhook_env"), f"要対応: workspace/action_items/{item}（{name}）", "📌 Nakama 要対応")
+        post_to_teams(fleet.notify.get("teams_webhook_env"), f"要対応: workspace/action_items/{item}（{name}）", "📌 要対応")
 
     if result.is_error:
         log.error("%s finished with error: %s %s", name, result.subtype, result.errors or "")
