@@ -219,6 +219,48 @@ def build_info() -> dict:
             "built_at": str(data.get("built_at") or ""), "started_at": STARTED_AT}
 
 
+def system_jobs() -> list[dict]:
+    """The built-in jobs next to the agents (論語の解説, 要件定義, devbox): enabled ones only, for the dashboard."""
+    jobs: list[dict] = []
+    try:
+        from . import rongo
+
+        if rongo.enabled():
+            g = rongo._read_json("generation.json", {})
+            sched = str(rongo.config().get("schedule") or rongo.DEFAULT_SCHEDULE)
+            jobs.append({"id": "rongo", "label": "論語の解説", "tab": "rongo", "schedule_ja": cronja.describe(sched),
+                         "running": bool(g.get("running")), "last": g.get("at") or "", "error": g.get("error") or "",
+                         "detail": f"{len(g.get('made') or [])} 章を作成" if g.get("at") and not g.get("error") else ""})
+    except Exception:  # noqa: BLE001 - one job's state never breaks the dashboard
+        log.exception("rongo job state")
+    try:
+        from . import devtriage
+
+        if devtriage.enabled():
+            t = devtriage.state()
+            jobs.append({"id": "devtriage", "label": "要件定義", "tab": "devreq",
+                         "schedule_ja": cronja.describe(devtriage.schedule()), "running": bool(t.get("running")),
+                         "last": t.get("at") or "", "error": t.get("error") or "",
+                         "detail": f"{len(t.get('done') or [])} 件を定義・待ち {t.get('pending', 0)} 件"})
+    except Exception:  # noqa: BLE001
+        log.exception("triage job state")
+    try:
+        from . import devimpl
+
+        if devimpl.enabled():
+            s = devimpl.status()
+            b = s.get("devbox") or {}
+            waiting = [x for x in s.get("queued") or [] if x != b.get("current")]
+            jobs.append({"id": "devbox", "label": "実装（devbox）", "tab": "devreq",
+                         "schedule_ja": cronja.describe(devimpl.schedule()), "running": bool(b.get("current")) and s["alive"],
+                         "last": b.get("at") or "", "error": "" if s["alive"] else "devbox の応答がありません",
+                         "detail": (f"{b['current']} を{b.get('phase') or '作業'}中" if b.get("current") else "待機中")
+                         + (f"・順番待ち {len(waiting)} 件" if waiting else "")})
+    except Exception:  # noqa: BLE001
+        log.exception("devbox job state")
+    return jobs
+
+
 def overview(samples: bool = True) -> dict:
     fleet = load_fleet()
     tz = ZoneInfo(fleet.timezone)
@@ -257,6 +299,7 @@ def overview(samples: bool = True) -> dict:
         "budget": float(fleet.limits.get("daily_budget_usd") or 0),
         "spent": round(sum(spent.values()), 4),
         "agents": agents,
+        "jobs": system_jobs(),
         "counts": {
             "drafts": count("drafts"),
             "action_items_open": count("action_items", "open"),

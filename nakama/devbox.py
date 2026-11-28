@@ -239,8 +239,9 @@ def changed_files() -> list[str]:
 
 
 def run_tests() -> tuple[bool, str]:
+    # NAKAMA_HOME points at the app baked into the image (/app); tests must see the clone being changed.
     r = run(["python", "-m", "pytest", "-q", "-x", "--no-header", "-p", "no:cacheprovider"], cwd=WORK / "repo",
-            timeout=1800)
+            timeout=1800, env={"NAKAMA_HOME": str(WORK / "repo")})
     out = (r.stdout + r.stderr).strip()
     return r.returncode == 0, out[-3000:]
 
@@ -278,8 +279,11 @@ async def process(job: dict[str, Any], agent: Agent | None = None, token: str | 
         prompt = spec_text(job) + (f"\n\n## 前回の指摘（直してください）\n{feedback}" if feedback else "")
         summary = await agent(IMPLEMENTER_PROMPT, prompt, False)
         files = changed_files()
+        log.info("devbox: %s round %d: %d files changed; Claude: %s", rid, n, len(files),
+                 (summary or "").strip().replace("\n", " ")[:300])
         if not files:
             feedback = "変更がありません。要件を実装してください。"
+            log.info("devbox: %s round %d: no changes", rid, n)
             continue
         blocked, careful = check_paths(files)
         if blocked:
@@ -292,6 +296,7 @@ async def process(job: dict[str, Any], agent: Agent | None = None, token: str | 
         ok, out = run_tests()
         if not ok:
             feedback = "テストが失敗しました:\n" + out
+            log.info("devbox: %s round %d: tests failed: %s", rid, n, out.strip().splitlines()[-1:] or "")
             continue
         diff = git("diff", "HEAD") + "".join(
             (WORK / "repo" / f).read_text(encoding="utf-8", errors="replace") for f in files
@@ -305,6 +310,7 @@ async def process(job: dict[str, Any], agent: Agent | None = None, token: str | 
         if review["ok"]:
             break
         feedback = "レビューの指摘:\n" + "\n".join(f"- {p}" for p in review["problems"])
+        log.info("devbox: %s round %d: review: %s", rid, n, "; ".join(review["problems"])[:500])
     else:
         return {"id": rid, "ok": False, "error": f"{rounds} 回直しても通りませんでした", "detail": feedback[-1500:],
                 "at": _now()}

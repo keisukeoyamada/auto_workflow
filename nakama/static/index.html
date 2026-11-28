@@ -275,6 +275,9 @@
   .crstep.rt .tip { left: auto; right: 0; }
   .crstep:hover .tip, .crstep.open .tip { display: block; }
   /* a memo on a label (e.g. the joint account): hover, or tap on a phone; editable in place */
+  .nowbox { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .nowrow { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; flex-wrap: wrap; }
+  .nowrow:hover { background: var(--accent-soft); border-radius: 6px; }
   .crnote { position: relative; display: inline-flex; align-items: center; gap: 3px; cursor: help; }
   .crnote .ico { font-size: 12px; color: var(--accent); }
   .crnote .tip { display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; width: min(300px, 80vw);
@@ -962,6 +965,18 @@ async function loadHandled() {
 }
 document.addEventListener("toggle", ev => { if (ev.target.id === "esc-hist" && ev.target.open) loadHandled(); }, true);
 
+// What is running now: agents that are running, plus the built-in jobs (論語の解説, 要件定義, devbox).
+function nowRunning(o) {
+  const t = iso => iso ? String(iso).slice(5, 16).replace("T", " ") : "";
+  const agents = (o.agents || []).filter(a => a.running).map(a =>
+    `<div class="nowrow"><span>${pill("実行中", "running")}</span><b>${esc(a.name)}</b><span class="muted">エージェント</span></div>`);
+  const jobs = (o.jobs || []).map(j => `<div class="nowrow" data-tab="${esc(j.tab)}" style="cursor:pointer" title="${esc(j.schedule_ja)}">
+      <span>${j.running ? pill("実行中", "running") : j.error ? pill("要確認", "off") : pill("待機", "ok")}</span>
+      <b>${esc(j.label)}</b><span class="${j.error ? "" : "muted"}" style="${j.error ? "color:var(--bad)" : ""}">${esc(j.error || j.detail || "")}</span>
+      <span class="muted" style="margin-left:auto;white-space:nowrap">${j.last ? "最終 " + esc(t(j.last)) : esc(j.schedule_ja)}</span></div>`);
+  if (!agents.length && !jobs.length) return "";
+  return `<div class="nowbox"><div class="cal-legend" style="margin:0 0 4px;font-weight:600">いま動いているもの</div>${agents.join("")}${jobs.join("")}</div>`;
+}
 function renderHome() {
   const o = state.overview; if (!o) return;
   const pct = o.budget ? Math.min(100, o.spent / o.budget * 100) : 0;
@@ -998,7 +1013,7 @@ function renderHome() {
         <button class="btn" id="agents-toggle">${state.agentsOpen ? "詳細を隠す" : "詳細を表示"}</button></span></h2>
         ${state.agentsOpen ? `<div class="tablewrap"><table>
         <tr><th>名前</th><th>モデル</th><th>スケジュール (cron)</th><th>状態</th><th>最終成功</th><th>本日</th><th></th></tr>
-        ${rows}</table></div>` : flowSvg(o)}</div>
+        ${rows}</table></div>` : flowSvg(o)}${nowRunning(o)}</div>
       <div class="card tasksq" style="grid-area:tasks"><h2>自分のタスク（未完了・期日順） <button class="btn right" data-tab="tasks">すべて</button></h2>
         <div id="taskmini">${state.cache.taskmini || '<div class="empty">読み込み中…</div>'}</div></div>
       <div class="rightcol">
