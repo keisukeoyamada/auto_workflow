@@ -647,7 +647,10 @@ function versionLine(v) {
     `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
   const commit = v.commit ? `版 <code title="${esc(v.commit)}${v.commit_date ? "（コミット " + esc(t(v.commit_date)) + "）" : ""}">${esc(v.commit.slice(0, 7))}</code>`
     : `版 手動ビルド${v.built_at ? "（作成 " + esc(t(v.built_at)) + "）" : ""}`;
-  return `${commit}・反映 ${esc(t(v.started_at))}`;
+  const c = v.check || {};
+  const check = c.problem ? `・<span style="color:var(--bad)" title="logs/autodeploy.log を確認">⚠ ${esc(c.problem)}（最終確認 ${esc(t(c.at))}）</span>`
+    : c.at ? `・確認 ${esc(t(c.at))}` : "";
+  return `${commit}・反映 ${esc(t(v.started_at))}${check}`;
 }
 function renderHeader() {
   const o = state.overview; if (!o) return;
