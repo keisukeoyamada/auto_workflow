@@ -2024,9 +2024,8 @@ def tail_log(lines: int = 200) -> str:
 GUEST_TAB_APIS: dict[str, tuple[str, ...]] = {
     "credit": ("/api/credit/",),
     "rongo": ("/api/rongo",),
-    "devreq": ("/api/devreq",),  # the family's requests: read + add (see GUEST_DENY)
+    "devreq": ("/api/devreq",),  # family requests only (devreq.for_family / update(guest=True))
 }
-GUEST_DENY = {"/api/devreq/update"}  # changing a request's status or notes stays owner-only
 
 
 UI_COLORS = ("blue", "pink", "green", "orange", "purple", "gray")
@@ -2251,8 +2250,6 @@ class _Handler(BaseHTTPRequestHandler):
     def _guest_allowed(self, path: str) -> bool:
         if path == "/api/overview":
             return True
-        if path in GUEST_DENY:
-            return False
         return any(path.startswith(prefix) for t in self.guest_tabs for prefix in GUEST_TAB_APIS.get(t, ()))
 
     def _guard(self, api: bool, path: str = "") -> bool:
@@ -2541,7 +2538,8 @@ class _Handler(BaseHTTPRequestHandler):
             from . import devreq
             self._dispatch(lambda: devreq.update(str(body.get("id", "")), body.get("status"), body.get("note"),
                                                  body.get("change"), body.get("usage"), body.get("instruction"),
-                                                 None if body.get("family") is None else bool(body.get("family"))))
+                                                 None if body.get("family") is None else bool(body.get("family")),
+                                                 guest=self._role() == "guest"))
         elif url.path == "/api/profile":
             self._dispatch(lambda: save_profile(str(body.get("name", "")), str(body.get("signature", ""))))
         elif url.path == "/api/run_all":

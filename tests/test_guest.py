@@ -167,10 +167,13 @@ def test_guest_sees_only_family_requests(server, tmp_path, monkeypatch):
         code, body = _req(srv, "POST", "/api/devreq/add", token=token, cookie=cookie, body={"text": "献立を出して", "note": "x"})
         row = json.loads(body)
         assert code == 200 and (row["by"], row["by_name"], row["family"], row["note"]) == ("guest", "yuka", True, "")
-        assert _req(srv, "POST", "/api/devreq/update", token=token, cookie=cookie,
-                    body={"id": private["id"], "family": True})[0] == 403
-        assert not devreq.load()[0]["family"]
+        upd = lambda body: _req(srv, "POST", "/api/devreq/update", token=token, cookie=cookie, body=body)  # noqa: E731
+        code, body = upd({"id": shared["id"], "status": "dropped", "instruction": "やっぱりいらない"})  # family ones: full use
+        assert code == 200 and (json.loads(body)["status"], json.loads(body)["instruction"]) == ("dropped", "やっぱりいらない")
+        assert upd({"id": private["id"], "status": "done"})[0] == 400  # the owner's own: as if it did not exist
+        assert upd({"id": shared["id"], "family": False})[0] == 403  # only the owner decides what is shared
+        assert devreq.load()[0]["status"] == "open" and not devreq.load()[0]["family"]
         devreq.update(private["id"], family=True)  # the owner can share one later
-        assert len(devreq.for_family()) == 3 and "note" not in devreq.for_family()[0]
+        assert len(devreq.for_family()) == 3
     finally:
         srv.shutdown()

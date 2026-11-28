@@ -1303,14 +1303,15 @@ async function refreshAfterTaskChange() {
 }
 
 // ---------- requests to Nakama itself ----------
-const DQ = { open: ["オープン", "open"], partial: ["一部対応", "waiting"], consult: ["要相談", "off"], done: ["完了", "done"], hold: ["保留", "off"] };
-const DQ_BG = { open: "var(--accent-soft)", partial: "var(--partial)", consult: "var(--off)", hold: "var(--code)", done: "" };
+const DQ = { open: ["オープン", "open"], partial: ["一部対応", "waiting"], consult: ["要相談", "off"], done: ["完了", "done"], hold: ["保留", "off"], dropped: ["取り下げ", "off"] };
+const DQ_BG = { open: "var(--accent-soft)", partial: "var(--partial)", consult: "var(--off)", hold: "var(--code)", done: "", dropped: "" };
 async function renderDevreq() {
   const main = document.getElementById("main");
   let r;
   try { r = await api("/api/devreq"); } catch (e) { main.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   state.dq = r.requests;
-  const order = { consult: 0, open: 1, partial: 2, hold: 3, done: 4 };
+  const order = { consult: 0, open: 1, partial: 2, hold: 3, done: 4, dropped: 5 };
+  const fam = !r.guest;  // the 家族 column is the owner's; a guest sees only family requests anyway
   const count = s => r.requests.filter(x => x.status === s).length;
   const tiles = `<div class="tiles">${Object.entries(DQ).map(([k, [l]]) => `<div class="tile"><div class="label">${l}</div><div class="value">${count(k)}</div></div>`).join("")}</div>`;
   const viewBtn = `<button class="btn" id="dq-view">${state.dqNotes ? "一覧に戻る" : "📄 リリースノート"}</button>`;
@@ -1322,35 +1323,25 @@ async function renderDevreq() {
         <div class="md" style="margin-top:4px">${x.instruction ? `<p><strong>あなたの指示:</strong> ${esc(x.instruction)}</p>` : ""}<p><strong>変更内容:</strong> ${esc(x.change || "—")}</p><p><strong>使い方:</strong> ${esc(x.usage || "—")}</p></div></div>`).join("")}</div>`;
     return;
   }
-  const rows = r.requests.filter(x => state.showDone || x.status !== "done").sort((a, b) => order[a.status] - order[b.status] || a.id.localeCompare(b.id));
+  const rows = r.requests.filter(x => state.showDone || (x.status !== "done" && x.status !== "dropped")).sort((a, b) => order[a.status] - order[b.status] || a.id.localeCompare(b.id));
   const byWho = x => x.by === "guest" ? `<span class="pill">${esc(x.by_name || "家族")}</span>` : "";
-  if (r.guest) {  // family view: the family's requests only; status is changed by the owner
-    main.innerHTML = `<div class="card"><h2>要望・対応状況 <span class="right" style="font-weight:400;font-size:12px">
-        <label style="cursor:pointer"><input type="checkbox" id="show-done" ${state.showDone ? "checked" : ""}> 完了も表示</label></span></h2>
-      <div class="cal-legend" style="margin:0 0 8px">ここに書いた要望は、家族の分だけが表示されます。対応したら状態が変わります。</div>
-      <div class="row" style="margin-bottom:8px"><input id="dq-text" placeholder="こうしてほしい、を 1 行で" style="flex:1;min-width:200px"><button class="btn primary" id="dq-add">追加</button></div>
-      <div class="tablewrap"><table><tr><th>状態</th><th>要望</th><th>だれ</th><th>対応内容・使い方</th></tr>${rows.map(x => `<tr style="background:${DQ_BG[x.status] || ""}">
-        <td>${pill(DQ[x.status][0], DQ[x.status][1])}</td><td>${esc(x.text)}</td><td>${byWho(x) || '<span class="pill">オーナー</span>'}</td>
-        <td class="muted">${esc([x.change, x.usage].filter(Boolean).join(" / "))}</td></tr>`).join("")
-        || '<tr><td colspan="4">まだ要望はありません</td></tr>'}</table></div></div>`;
-    return;
-  }
   main.innerHTML = tiles + `<div class="card"><h2>要望・対応状況 <span class="right" style="font-weight:400;font-size:12px">${viewBtn}
-      <label style="cursor:pointer;margin-left:8px"><input type="checkbox" id="show-done" ${state.showDone ? "checked" : ""}> 完了も表示</label></span></h2>
+      <label style="cursor:pointer;margin-left:8px"><input type="checkbox" id="show-done" ${state.showDone ? "checked" : ""}> 完了・取り下げも表示</label></span></h2>
+      ${r.guest ? '<div class="cal-legend" style="margin:0 0 8px">家族の要望だけが表示されます。行を押すと、メモへの返信や対応内容が見られます。やめたいときは状態を「取り下げ」に。</div>' : ""}
       <div class="row" style="margin-bottom:8px"><input id="dq-text" placeholder="新しい要望" style="flex:1;min-width:200px"><button class="btn primary" id="dq-add">追加（オープン）</button></div>
-      <div class="tablewrap"><table><tr><th>#</th><th>状態</th><th>要望（押すと変更内容・使い方）</th><th title="チェックすると家族のログインにも表示">家族</th><th>あなたの指示</th><th>メモ（Claude）</th></tr>${rows.map(x => `<tr data-dqrow="${esc(x.id)}" style="cursor:pointer;background:${DQ_BG[x.status] || ""}">
+      <div class="tablewrap"><table><tr><th>#</th><th>状態</th><th>要望（押すと変更内容・使い方）</th>${fam ? '<th title="チェックすると家族のログインにも表示">家族</th>' : ""}<th>${r.guest ? "指示・返信" : "あなたの指示"}</th><th>メモ（Claude）</th></tr>${rows.map(x => `<tr data-dqrow="${esc(x.id)}" style="cursor:pointer;background:${DQ_BG[x.status] || ""}">
         <td class="muted">${esc(x.id)}</td>
         <td><select data-dq="${esc(x.id)}">${r.statuses.map(s => `<option value="${s}" ${s === x.status ? "selected" : ""}>${DQ[s][0]}</option>`).join("")}</select></td>
-        <td>${esc(x.text)} ${byWho(x)}</td><td><input type="checkbox" data-dqfam="${esc(x.id)}" ${x.family ? "checked" : ""} title="家族のログインにも表示"></td>
+        <td>${esc(x.text)} ${byWho(x)}</td>${fam ? `<td><input type="checkbox" data-dqfam="${esc(x.id)}" ${x.family ? "checked" : ""} title="家族のログインにも表示"></td>` : ""}
         <td style="font-weight:600">${esc(x.instruction || "")}</td><td class="muted">${esc(x.note)}</td></tr>
-        ${state.dqOpen === x.id ? `<tr data-attach><td></td><td colspan="5"><div class="card" style="margin:4px 0">
-          <div class="cal-legend" style="margin:0 0 2px;font-weight:600">あなたの指示（Claude はここを最優先で読む）</div><textarea id="dq-instr" style="min-height:50px">${esc(x.instruction || "")}</textarea>
+        ${state.dqOpen === x.id ? `<tr data-attach><td></td><td colspan="${fam ? 5 : 4}"><div class="card" style="margin:4px 0">
+          <div class="cal-legend" style="margin:0 0 2px;font-weight:600">${r.guest ? "指示・メモへの返信" : "あなたの指示"}（Claude はここを最優先で読む）</div><textarea id="dq-instr" style="min-height:50px">${esc(x.instruction || "")}</textarea>
           <div class="cal-legend" style="margin:6px 0 2px">変更内容（どう修正したか）</div><textarea id="dq-change" style="min-height:70px">${esc(x.change || "")}</textarea>
           <div class="cal-legend" style="margin:6px 0 2px">使い方</div><textarea id="dq-usage" style="min-height:50px">${esc(x.usage || "")}</textarea>
           <div class="cal-legend" style="margin:6px 0 2px">メモ</div><input id="dq-note" value="${esc(x.note || "")}" style="width:100%">
           <div style="margin-top:6px"><button class="btn primary" id="dq-save" data-id="${esc(x.id)}">保存</button>
             <span class="cal-legend">更新 ${esc((x.updated || "").replace("T", " "))}</span></div></div></td></tr>` : ""}`).join("")
-        || '<tr><td colspan="6">未対応の要望はありません 🎉</td></tr>'}</table></div></div>`;
+        || `<tr><td colspan="${fam ? 6 : 5}">未対応の要望はありません 🎉</td></tr>`}</table></div></div>`;
 }
 document.addEventListener("change", async ev => {
   if (ev.target.dataset && ev.target.dataset.dqfam) {
