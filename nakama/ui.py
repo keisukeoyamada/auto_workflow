@@ -219,6 +219,24 @@ def build_info() -> dict:
             "built_at": str(data.get("built_at") or ""), "started_at": STARTED_AT}
 
 
+DEPLOY_OK = ("up to date", "waiting for CI", "deployed", "deploying", "started", "skipped (failed before)")
+
+
+def deploy_check(now: float | None = None) -> dict:
+    """When the NAS auto-deploy last looked and what it found (logs/autodeploy-check.json). problem = needs a look."""
+    try:
+        data = json.loads((LOGS_DIR / "autodeploy-check.json").read_text(encoding="utf-8"))
+        at = float(data["at"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+    now = now if now is not None else time.time()
+    result = str(data.get("result") or "")
+    stale = now - at > 15 * 60  # the task runs every 5 minutes
+    return {"at": datetime.fromtimestamp(at).astimezone().isoformat(timespec="minutes"), "result": result,
+            "problem": "自動デプロイが 15 分以上動いていません" if stale
+            else "" if result in DEPLOY_OK else f"自動デプロイ: {result}"}
+
+
 def deploy_state(now: float | None = None) -> dict:
     """The NAS auto-deploy in progress (scripts/nas-autodeploy.sh writes logs/autodeploy-state.json)."""
     try:
@@ -327,7 +345,7 @@ def overview(samples: bool = True) -> dict:
             "my_tasks_open": my_open,
         },
         "has_ticketing": bool((fleet.ticketing or {}).get("base")),
-        "version": build_info(),
+        "version": build_info() | {"check": deploy_check()},
         "features": {"credit": bool((fleet.credit or {}).get("enabled")),
                      "rongo": bool((fleet.rongo or {}).get("enabled"))},
         "queues": _queues(fleet, samples),

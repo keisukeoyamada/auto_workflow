@@ -269,3 +269,16 @@ def test_deploy_state_for_the_banner(tmp_path, monkeypatch):
     assert ui.deploy_state(now=1000 + 3600) == {}  # stale (the script died)
     f.write_text(json.dumps({"state": "done", "to": "x", "started": 1000, "seconds": 200}))
     assert ui.deploy_state(now=1100) == {}
+
+
+def test_deploy_check_in_the_footer(tmp_path, monkeypatch):
+    import json
+
+    monkeypatch.setattr(ui, "LOGS_DIR", tmp_path)
+    assert ui.deploy_check() == {}
+    f = tmp_path / "autodeploy-check.json"
+    f.write_text(json.dumps({"at": 1000, "result": "up to date"}))
+    assert ui.deploy_check(now=1200)["problem"] == ""
+    assert "15 分" in ui.deploy_check(now=1000 + 16 * 60)["problem"]  # the task stopped running
+    f.write_text(json.dumps({"at": 1000, "result": "fetch failed"}))
+    assert ui.deploy_check(now=1100)["problem"] == "自動デプロイ: fetch failed"
