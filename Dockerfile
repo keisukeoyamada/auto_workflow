@@ -26,6 +26,14 @@ COPY docs ./docs
 COPY samples ./samples
 RUN chown -R ${UID}:${GID} /app
 
+# Which commit this image was built from, shown at the bottom of the dashboard.
+# scripts/nas-autodeploy.sh passes these; a plain `docker compose build` leaves the commit empty ("手動ビルド").
+ARG GIT_COMMIT=""
+ARG GIT_COMMIT_DATE=""
+RUN printf '{"commit": "%s", "commit_date": "%s", "built_at": "%s"}\n' \
+      "$GIT_COMMIT" "$GIT_COMMIT_DATE" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > /app/build-info.json \
+    && chown ${UID}:${GID} /app/build-info.json
+
 USER nakama
 ENV NAKAMA_HOME=/app PYTHONUNBUFFERED=1
 ENTRYPOINT ["python", "-m", "nakama"]
