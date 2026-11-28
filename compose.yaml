@@ -35,7 +35,8 @@ services:
       # NAS / LAN access: use "8765:8765" and set NAKAMA_UI_PASSWORD + NAKAMA_UI_ALLOW_HOSTS in .env
 
   # Optional: implements 要望 marked 着手OK and opens draft pull requests (docs/GUIDE.md「要望の実装」).
-  # Starts only with COMPOSE_PROFILES=devbox in .env. It sees no household data: only the job queue,
+  # Starts only with COMPOSE_PROFILES=devbox in .env (first: mkdir -p workspace/devq devbox secrets, not as root).
+  # It sees no household data: only the job queue,
   # its own clone of the repository and the secrets/ folder (GitHub token, root-only).
   devbox:
     profiles: ["devbox"]

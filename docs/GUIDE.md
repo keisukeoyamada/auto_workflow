@@ -289,7 +289,7 @@ devreq:
 
 ```bash
 cd /volume1/docker/auto_workflow
-mkdir -p secrets
+mkdir -p secrets workspace/devq devbox                 # sudo なしで（Synology はマウント先を自動で作らない）
 sudo sh -c 'umask 077; cat > secrets/github-token'     # トークンを貼って Enter、Ctrl+D
 sudo sh -c 'umask 077; cat > secrets/forbidden.txt'    # 出してはいけない語を 1 行ずつ、Ctrl+D（任意だが推奨）
 sudo chown root:root secrets/github-token secrets/forbidden.txt
@@ -300,7 +300,7 @@ sudo docker compose up -d --build
 sudo docker compose logs devbox --tail 20              # "waiting for jobs" が出れば準備完了
 ```
 
-要望タブに「devbox: 待機中」と出れば動いています。`fleet.yaml` の `devreq.implement` では `schedule`・`model`・`budget_usd`（1 件あたりの上限）・`rounds`（直す回数）を変えられます。
+`cat >` の 2 行は 1 行ずつ実行し、入力のあと Ctrl+D で終えます（まとめて貼ると、後ろの行までファイルに入ってしまいます）。要望タブに「devbox: 待機中」と出れば動いています。`fleet.yaml` の `devreq.implement` では `schedule`・`model`・`budget_usd`（1 件あたりの上限）・`rounds`（直す回数）を変えられます。
 
 ## 7. コネクタを追加する
 
