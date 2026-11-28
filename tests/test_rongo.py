@@ -97,3 +97,25 @@ def test_favorites_are_kept_apart_from_reading(cfg):
     assert [f["id"] for f in rongo.status()["favorites"]] == ["01-04"]
     with pytest.raises(ValueError):
         rongo.set_fav("99-99")
+
+
+def test_each_login_reads_on_its_own(cfg):
+    import json
+
+    people = [{"role": "owner", "name": "A", "color": "blue"}, {"role": "guest", "name": "B", "color": "pink"}]
+    rongo.mark_read("01-01", today=date(2026, 11, 27))  # the owner (default)
+    rongo.mark_read("01-01", today=date(2026, 11, 28), user="guest")
+    rongo.mark_read("01-02", today=date(2026, 11, 28), user="guest")
+    rongo.set_fav("01-02", today=date(2026, 11, 28), user="guest")
+    g = rongo.status(user="guest", people=people, today=date(2026, 11, 28))
+    o = rongo.status(people=people, today=date(2026, 11, 28))
+    assert (g["read"], g["next_id"], g["streak"], o["read"], o["next_id"]) == (2, "01-03", 1, 1, "01-02")
+    assert [f["id"] for f in g["favorites"]] == ["01-02"] and o["favorites"] == []  # stars are per login too
+    cells = o["books"][0]["chapters"]
+    assert (cells[0]["read_by"], cells[1]["read_by"], cells[1]["read"]) == (["owner", "guest"], ["guest"], False)
+    assert [(r["role"], r["read"], r["me"]) for r in o["readers"]] == [("owner", 1, True), ("guest", 2, False)]
+    assert rongo.status("01-01", people=people)["current"]["read_by"] == [
+        {"role": "owner", "on": "2026-11-27"}, {"role": "guest", "on": "2026-11-28"}]
+    saved = json.loads((rongo.DIR / "progress.json").read_text(encoding="utf-8"))
+    assert saved["read"] == {"01-01": "2026-11-27"} and set(saved["users"]["guest"]["read"]) == {"01-01", "01-02"}
+    assert rongo.upcoming(2) == ["01-02", "01-03", "01-04"]  # the next chapters of both readers

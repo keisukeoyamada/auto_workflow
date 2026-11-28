@@ -251,6 +251,9 @@
   .rg-cell.read { background: var(--ok); border-color: var(--ok); color: #fff; }
   .rg-cell.cur { outline: 2px solid var(--accent); outline-offset: 1px; }
   .rg-cell.fav { box-shadow: inset 0 -3px 0 #e0a800; }
+  .rg-cell.by { color: #fff; border-color: transparent; }
+  .rg-who { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; }
+  .rg-who i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
   .rg-star { border: 0; background: none; cursor: pointer; font-size: 20px; line-height: 1; padding: 0 4px; color: var(--muted); vertical-align: -2px; }
   .rg-star.on { color: #e0a800; }
   .rg-fav { border-top: 1px solid var(--line); padding: 10px 0; }
@@ -319,7 +322,7 @@
            border: 1px solid var(--line); border-radius: 12px; padding: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.16); display: none; }
   #qmemo.open { display: block; } #qmemo textarea { width: 100%; min-height: 110px; box-sizing: border-box; }
   body.guest #chat-toggle, body.guest .chatbtn, body.guest #qmemo-btn, body.guest #qmemo, body.guest footer { display: none !important; }
-  body.only #nav, body.only:not(.guest) header, body.only #desc, body.only #chatpanel, body.only #qmemo-btn, body.only #sysinfo,body.only #wbs-shareopen { display: none !important; }
+  body.only:not(.guest) #nav, body.only:not(.guest) header, body.only #desc, body.only #chatpanel, body.only #qmemo-btn, body.only #sysinfo,body.only #wbs-shareopen { display: none !important; }
   /* --- q067: quieter look: more whitespace, soft shadows instead of borders, fewer colours --- */
   :root { --radius: 14px; }
   body { font-size: 14.5px; letter-spacing: .01em; -webkit-font-smoothing: antialiased; }
@@ -608,6 +611,11 @@ function renderHeader() {
   const badge = t => t.badge ? t.badge(o.counts) : 0;
   const feat = t => !t.feature || Boolean((o.features || {})[t.feature]);  // optional tabs, off unless enabled
   const byId = Object.fromEntries(TABS.filter(feat).map(t => [t.id, t]));
+  if (GUEST_TABS.length) {  // a guest sees only its own tabs, side by side (no groups)
+    setHTMLCached("nav", GUEST_TABS.length < 2 ? "" : "<nav>" + GUEST_TABS.map(id => TABS.find(t => t.id === id)).filter(Boolean)
+      .map(t => `<button data-tab="${t.id}" class="${state.tab === t.id ? "active" : ""}">${t.label}</button>`).join("") + "</nav>");
+    return;
+  }
   const active = groupOf(state.tab);
   setHTMLCached("nav", "<nav>" + GROUPS.filter(g => g.tabs.some(id => byId[id])).map(g => {
     const n = g.tabs.reduce((a, id) => a + (byId[id] ? badge(byId[id]) : 0), 0);
@@ -1315,23 +1323,42 @@ async function renderDevreq() {
     return;
   }
   const rows = r.requests.filter(x => state.showDone || x.status !== "done").sort((a, b) => order[a.status] - order[b.status] || a.id.localeCompare(b.id));
+  const byWho = x => x.by === "guest" ? `<span class="pill">${esc(x.by_name || "家族")}</span>` : "";
+  if (r.guest) {  // family view: the family's requests only; status is changed by the owner
+    main.innerHTML = `<div class="card"><h2>要望・対応状況 <span class="right" style="font-weight:400;font-size:12px">
+        <label style="cursor:pointer"><input type="checkbox" id="show-done" ${state.showDone ? "checked" : ""}> 完了も表示</label></span></h2>
+      <div class="cal-legend" style="margin:0 0 8px">ここに書いた要望は、家族の分だけが表示されます。対応したら状態が変わります。</div>
+      <div class="row" style="margin-bottom:8px"><input id="dq-text" placeholder="こうしてほしい、を 1 行で" style="flex:1;min-width:200px"><button class="btn primary" id="dq-add">追加</button></div>
+      <div class="tablewrap"><table><tr><th>状態</th><th>要望</th><th>だれ</th><th>対応内容・使い方</th></tr>${rows.map(x => `<tr style="background:${DQ_BG[x.status] || ""}">
+        <td>${pill(DQ[x.status][0], DQ[x.status][1])}</td><td>${esc(x.text)}</td><td>${byWho(x) || '<span class="pill">オーナー</span>'}</td>
+        <td class="muted">${esc([x.change, x.usage].filter(Boolean).join(" / "))}</td></tr>`).join("")
+        || '<tr><td colspan="4">まだ要望はありません</td></tr>'}</table></div></div>`;
+    return;
+  }
   main.innerHTML = tiles + `<div class="card"><h2>要望・対応状況 <span class="right" style="font-weight:400;font-size:12px">${viewBtn}
       <label style="cursor:pointer;margin-left:8px"><input type="checkbox" id="show-done" ${state.showDone ? "checked" : ""}> 完了も表示</label></span></h2>
       <div class="row" style="margin-bottom:8px"><input id="dq-text" placeholder="新しい要望" style="flex:1;min-width:200px"><button class="btn primary" id="dq-add">追加（オープン）</button></div>
-      <div class="tablewrap"><table><tr><th>#</th><th>状態</th><th>要望（押すと変更内容・使い方）</th><th>あなたの指示</th><th>メモ（Claude）</th></tr>${rows.map(x => `<tr data-dqrow="${esc(x.id)}" style="cursor:pointer;background:${DQ_BG[x.status] || ""}">
+      <div class="tablewrap"><table><tr><th>#</th><th>状態</th><th>要望（押すと変更内容・使い方）</th><th title="チェックすると家族のログインにも表示">家族</th><th>あなたの指示</th><th>メモ（Claude）</th></tr>${rows.map(x => `<tr data-dqrow="${esc(x.id)}" style="cursor:pointer;background:${DQ_BG[x.status] || ""}">
         <td class="muted">${esc(x.id)}</td>
         <td><select data-dq="${esc(x.id)}">${r.statuses.map(s => `<option value="${s}" ${s === x.status ? "selected" : ""}>${DQ[s][0]}</option>`).join("")}</select></td>
-        <td>${esc(x.text)}</td><td style="font-weight:600">${esc(x.instruction || "")}</td><td class="muted">${esc(x.note)}</td></tr>
-        ${state.dqOpen === x.id ? `<tr data-attach><td></td><td colspan="4"><div class="card" style="margin:4px 0">
+        <td>${esc(x.text)} ${byWho(x)}</td><td><input type="checkbox" data-dqfam="${esc(x.id)}" ${x.family ? "checked" : ""} title="家族のログインにも表示"></td>
+        <td style="font-weight:600">${esc(x.instruction || "")}</td><td class="muted">${esc(x.note)}</td></tr>
+        ${state.dqOpen === x.id ? `<tr data-attach><td></td><td colspan="5"><div class="card" style="margin:4px 0">
           <div class="cal-legend" style="margin:0 0 2px;font-weight:600">あなたの指示（Claude はここを最優先で読む）</div><textarea id="dq-instr" style="min-height:50px">${esc(x.instruction || "")}</textarea>
           <div class="cal-legend" style="margin:6px 0 2px">変更内容（どう修正したか）</div><textarea id="dq-change" style="min-height:70px">${esc(x.change || "")}</textarea>
           <div class="cal-legend" style="margin:6px 0 2px">使い方</div><textarea id="dq-usage" style="min-height:50px">${esc(x.usage || "")}</textarea>
           <div class="cal-legend" style="margin:6px 0 2px">メモ</div><input id="dq-note" value="${esc(x.note || "")}" style="width:100%">
           <div style="margin-top:6px"><button class="btn primary" id="dq-save" data-id="${esc(x.id)}">保存</button>
             <span class="cal-legend">更新 ${esc((x.updated || "").replace("T", " "))}</span></div></div></td></tr>` : ""}`).join("")
-        || '<tr><td colspan="5">未対応の要望はありません 🎉</td></tr>'}</table></div></div>`;
+        || '<tr><td colspan="6">未対応の要望はありません 🎉</td></tr>'}</table></div></div>`;
 }
 document.addEventListener("change", async ev => {
+  if (ev.target.dataset && ev.target.dataset.dqfam) {
+    try { await api("/api/devreq/update", { id: ev.target.dataset.dqfam, family: ev.target.checked });
+          toast(ev.target.checked ? "家族にも表示します" : "家族には表示しません"); renderDevreq(); }
+    catch (e) { toast(e.message); }
+    return;
+  }
   if (!ev.target.dataset || !ev.target.dataset.dq) return;
   try { await api("/api/devreq/update", { id: ev.target.dataset.dq, status: ev.target.value }); toast("更新しました"); renderDevreq(); }
   catch (e) { toast(e.message); }
@@ -1884,6 +1911,7 @@ async function renderRongo(id) {
         <button class="rg-star ${c.fav_on ? "on" : ""}" id="rg-fav" data-id="${esc(c.id)}" data-on="${c.fav_on ? "1" : ""}"
           title="${c.fav_on ? "お気に入りから外す" : "お気に入りに入れる"}" aria-label="お気に入り">${c.fav_on ? "★" : "☆"}</button>
         ${c.read_on ? `<span class="pill ok">${esc(c.read_on)} に読了</span>` : isNext ? '<span class="pill open">今日の 1 章</span>' : ""}
+        ${(c.read_by || []).filter(b => b.role !== r.user).map(b => `<span class="pill" style="background:${RG_HEX[(rgPerson(r, b.role) || {}).color] || "#667085"};color:#fff">${esc((rgPerson(r, b.role) || {}).name || "")} ${esc(b.on)} に読了</span>`).join("")}
         <span class="right">${r.prev_id ? `<button class="btn" data-rgid="${esc(r.prev_id)}">◀ 前</button>` : ""}
           ${r.following_id ? `<button class="btn" data-rgid="${esc(r.following_id)}">次 ▶</button>` : ""}
           ${!isNext && r.next_id ? `<button class="btn" data-rgid="">今日の章へ</button>` : ""}</span></h2>
@@ -1893,8 +1921,9 @@ async function renderRongo(id) {
         ? `<button class="btn" id="rg-unread" data-id="${esc(c.id)}">未読に戻す</button>`
         : `<button class="btn primary" id="rg-read" data-id="${esc(c.id)}">読んだ</button>`}</div></div>
     <div class="tiles">
-      <div class="tile"><div class="label">読んだ章</div><div class="value">${r.read} / ${r.total}</div>
-        <div class="meter"><div style="width:${pct}%"></div></div><div class="cal-legend" style="margin:4px 0 0">${pct}%</div></div>
+      <div class="tile"><div class="label">読んだ章（自分）</div><div class="value">${r.read} / ${r.total}</div>
+        <div class="meter"><div style="width:${pct}%"></div></div><div class="cal-legend" style="margin:4px 0 0">${pct}%
+          ${(r.readers || []).filter(p => !p.me).map(p => `・${esc(p.name)} ${p.read} 章`).join("")}</div></div>
       <div class="tile"><div class="label">連続日数</div><div class="value">${r.streak} 日</div>
         <div class="cal-legend" style="margin:4px 0 0">${r.read_today ? `今日 ${r.read_today} 章読みました` : "今日はまだです"}</div></div>
       <div class="tile"><div class="label">解説が準備済みの未読</div><div class="value">${r.notes_ready} 章</div></div>
@@ -1903,12 +1932,23 @@ async function renderRongo(id) {
     <div class="card"><h2>篇ごとの進み具合</h2><div class="rg-books">${r.books.map(b => {
       const n = b.chapters.filter(x => x.read).length;
       return `<div class="rg-book"><span>${esc(b.name)}</span><div class="rg-cells">${b.chapters.map(x =>
-        `<button class="rg-cell ${x.read ? "read" : ""} ${x.fav ? "fav" : ""} ${x.id === c.id ? "cur" : ""}" data-rgid="${esc(x.id)}" title="${esc(b.name)} 第${x.no}章${x.fav ? "（お気に入り）" : ""}">${x.no}</button>`).join("")}</div>
+        `<button class="rg-cell ${(x.read_by || []).length ? "by" : ""} ${x.fav ? "fav" : ""} ${x.id === c.id ? "cur" : ""}" data-rgid="${esc(x.id)}" style="${rgCellBg(r, x.read_by || [])}" title="${esc(b.name)} 第${x.no}章${rgWho(r, x.read_by || [])}${x.fav ? "（お気に入り）" : ""}">${x.no}</button>`).join("")}</div>
         <span class="cnt cal-legend" style="margin:0">${n} / ${b.total}</span></div>`;
     }).join("")}</div>
-      <div class="cal-legend">マスを押すとその章を開きます（緑 = 読んだ、★の印 = お気に入り）。原文: ${esc(r.source)}。書き下し文・現代語訳・教訓は Claude が作ったもので、誤りがあり得ます。</div></div>`;
+      <div class="cal-legend">${(r.readers || []).map(p => `<span class="rg-who"><i style="background:${RG_HEX[p.color] || "#667085"}"></i>${esc(p.name)}${p.me ? "（自分）" : ""}が読んだ</span>`).join("")}
+        ${(r.readers || []).length > 1 ? `<span class="rg-who"><i style="${rgCellBg(r, r.readers.map(p => p.role))}"></i>2 人とも</span>` : ""}</div>
+      <div class="cal-legend">マスを押すとその章を開きます（色 = 読んだ人、★の印 = 自分のお気に入り）。原文: ${esc(r.source)}。書き下し文・現代語訳・教訓は Claude が作ったもので、誤りがあり得ます。</div></div>`;
   if (g.running) { clearTimeout(state.rgPoll); state.rgPoll = setTimeout(() => { if (state.tab === "rongo") renderRongo(c.id); }, 5000); }
 }
+// Who read a chapter, colour-coded per login (the colours of the name badge at the top right).
+const RG_HEX = { blue: "#2f6fde", pink: "#d6408f", green: "#1f8a4c", orange: "#c27400", purple: "#7850dc", gray: "#667085" };
+const rgPerson = (r, role) => (r.readers || []).find(p => p.role === role);
+function rgCellBg(r, by) {
+  const cs = by.map(role => RG_HEX[(rgPerson(r, role) || {}).color] || RG_HEX.gray);
+  if (!cs.length) return "";
+  return cs.length === 1 ? `background:${cs[0]}` : `background:linear-gradient(135deg,${cs[0]} 50%,${cs[1]} 50%)`;
+}
+const rgWho = (r, by) => by.length ? "（読んだ: " + by.map(role => (rgPerson(r, role) || {}).name || role).join("・") + "）" : "";
 // Starred chapters with their translation and lesson, so they can be re-read at a glance.
 function rgFavorites(r, c) {
   const favs = r.favorites || [];
@@ -2919,7 +2959,7 @@ document.addEventListener("click", async ev => {
     catch (e) { toast(e.message); }
     return;
   }
-  if (t.dataset.dqrow && !ev.target.closest("select")) { state.dqOpen = state.dqOpen === t.dataset.dqrow ? "" : t.dataset.dqrow; renderDevreq(); return; }
+  if (t.dataset.dqrow && !ev.target.closest("select,input")) { state.dqOpen = state.dqOpen === t.dataset.dqrow ? "" : t.dataset.dqrow; renderDevreq(); return; }
   if (t.id === "dq-add") {
     try { await api("/api/devreq/add", { text: document.getElementById("dq-text").value }); toast("追加しました"); renderDevreq(); }
     catch (e) { toast(e.message); }

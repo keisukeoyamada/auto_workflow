@@ -2024,7 +2024,9 @@ def tail_log(lines: int = 200) -> str:
 GUEST_TAB_APIS: dict[str, tuple[str, ...]] = {
     "credit": ("/api/credit/",),
     "rongo": ("/api/rongo",),
+    "devreq": ("/api/devreq",),  # the family's requests: read + add (see GUEST_DENY)
 }
+GUEST_DENY = {"/api/devreq/update"}  # changing a request's status or notes stays owner-only
 
 
 UI_COLORS = ("blue", "pink", "green", "orange", "purple", "gray")
@@ -2242,9 +2244,15 @@ class _Handler(BaseHTTPRequestHandler):
         """Who must approve a credit month: the owner, plus the guest when a guest login exists."""
         return [ui_user("owner")] + ([ui_user("guest")] if self.password and self.guest_password else [])
 
+    def _readers(self) -> list[dict]:
+        """Whose reading the 論語 tab shows side by side: the owner, plus the guest when a guest login exists."""
+        return self._approvers()
+
     def _guest_allowed(self, path: str) -> bool:
         if path == "/api/overview":
             return True
+        if path in GUEST_DENY:
+            return False
         return any(path.startswith(prefix) for t in self.guest_tabs for prefix in GUEST_TAB_APIS.get(t, ()))
 
     def _guard(self, api: bool, path: str = "") -> bool:
@@ -2397,7 +2405,9 @@ class _Handler(BaseHTTPRequestHandler):
             self._dispatch(todo_note.read_raw)
         elif url.path == "/api/devreq":
             from . import devreq
-            self._dispatch(lambda: {"requests": devreq.load(), "statuses": devreq.STATUSES})
+            guest = self._role() == "guest"
+            self._dispatch(lambda: {"requests": devreq.for_family() if guest else devreq.load(),
+                                    "statuses": devreq.STATUSES, "guest": guest})
         elif url.path == "/api/cron/help":
             self._dispatch(lambda: {"help": cronja.HELP})
         elif url.path == "/api/overtime":
@@ -2407,7 +2417,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._dispatch(memo_history)
         elif url.path == "/api/rongo":
             from . import rongo
-            self._dispatch(lambda: rongo.status(q.get("id", "")))
+            who = self._role() or "owner"
+            self._dispatch(lambda: rongo.status(q.get("id", ""), user=who, people=self._readers()))
         elif url.path == "/api/credit/months":
             from . import credit
             self._dispatch(credit.months)
@@ -2522,11 +2533,15 @@ class _Handler(BaseHTTPRequestHandler):
             self._dispatch(lambda: complete_task(body))
         elif url.path == "/api/devreq/add":
             from . import devreq
-            self._dispatch(lambda: devreq.add(str(body.get("text", "")), note=str(body.get("note", ""))))
+            me = self._me()
+            guest = me["role"] == "guest"
+            self._dispatch(lambda: devreq.add(str(body.get("text", "")), note="" if guest else str(body.get("note", "")),
+                                              by=me["role"], by_name=me["name"], family=bool(body.get("family"))))
         elif url.path == "/api/devreq/update":
             from . import devreq
             self._dispatch(lambda: devreq.update(str(body.get("id", "")), body.get("status"), body.get("note"),
-                                                 body.get("change"), body.get("usage"), body.get("instruction")))
+                                                 body.get("change"), body.get("usage"), body.get("instruction"),
+                                                 None if body.get("family") is None else bool(body.get("family"))))
         elif url.path == "/api/profile":
             self._dispatch(lambda: save_profile(str(body.get("name", "")), str(body.get("signature", ""))))
         elif url.path == "/api/run_all":
@@ -2641,10 +2656,13 @@ class _Handler(BaseHTTPRequestHandler):
             self._dispatch(bizdays.import_cao_csv)
         elif url.path == "/api/rongo/read":
             from . import rongo
-            self._dispatch(lambda: rongo.mark_read(str(body.get("id", "")), bool(body.get("read", True))))
+            who = self._role() or "owner"
+            self._dispatch(lambda: rongo.mark_read(str(body.get("id", "")), bool(body.get("read", True)), user=who)
+                           | {"readers": rongo.status(user=who, people=self._readers())["readers"]})
         elif url.path == "/api/rongo/fav":
             from . import rongo
-            self._dispatch(lambda: rongo.set_fav(str(body.get("id", "")), bool(body.get("fav", True))))
+            who = self._role() or "owner"
+            self._dispatch(lambda: rongo.set_fav(str(body.get("id", "")), bool(body.get("fav", True)), user=who))
         elif url.path == "/api/rongo/generate":
             from . import rongo
             self._dispatch(lambda: rongo.start_generation(str(body.get("id", ""))))
