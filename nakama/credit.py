@@ -85,10 +85,42 @@ def members(cfg: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     return out
 
 
+NOTE_KEYS = ("shared",)  # memos the dashboard shows on a label (shared = the joint account): workspace/credit/notes.json
+
+
+def notes() -> dict[str, dict[str, str]]:
+    try:
+        data = json.loads((DIR / "notes.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in data.items() if k in NOTE_KEYS and isinstance(v, dict)} if isinstance(data, dict) else {}
+
+
+def set_note(key: str, text: str, who: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Save the memo for a label (anyone who can open the tab may edit it; empty text removes it)."""
+    _require_enabled()
+    if key not in NOTE_KEYS:
+        raise ValueError("そのメモはありません")
+    with _lock:
+        data = notes()
+        text = str(text or "").strip()[:2000]
+        if text:
+            data[key] = {"text": text, "by": str((who or {}).get("name") or ""),
+                         "at": datetime.now().isoformat(timespec="minutes")}
+        else:
+            data.pop(key, None)
+        DIR.mkdir(parents=True, exist_ok=True)
+        tmp = DIR / "notes.json.tmp"
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        tmp.replace(DIR / "notes.json")
+    return public_config()
+
+
 def public_config() -> dict[str, Any]:
     """What the dashboard needs (no CSV match strings)."""
     cfg = config()
     return {
+        "notes": notes(),
         "enabled": bool(cfg.get("enabled")),
         "members": [{k: m[k] for k in ("key", "label", "color")} for m in members(cfg)],
         "shared_label": str(cfg.get("shared_label") or "共同"),

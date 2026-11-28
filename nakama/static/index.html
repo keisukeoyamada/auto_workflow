@@ -274,6 +274,21 @@
                  font-size: 12.5px; font-weight: 400; line-height: 1.6; text-align: left; box-shadow: 0 6px 20px rgba(0,0,0,.12); white-space: normal; }
   .crstep.rt .tip { left: auto; right: 0; }
   .crstep:hover .tip, .crstep.open .tip { display: block; }
+  /* a memo on a label (e.g. the joint account): hover, or tap on a phone; editable in place */
+  .crnote { position: relative; display: inline-flex; align-items: center; gap: 3px; cursor: help; }
+  .crnote .ico { font-size: 12px; color: var(--accent); }
+  .crnote .tip { display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; width: min(300px, 80vw);
+                 background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+                 font-size: 12.5px; font-weight: 400; line-height: 1.6; box-shadow: 0 6px 20px rgba(0,0,0,.12); white-space: normal; cursor: auto; }
+  .crnote .tip .txt { white-space: pre-wrap; }
+  .crnote:hover .tip, .crnote.open .tip { display: block; }
+  .crnote .tip textarea { width: 100%; min-height: 80px; font-size: 16px; }
+  .crnote.rt .tip { left: auto; right: 0; }
+  @media (max-width: 760px) {  /* phone: tap opens the memo inside the tile (no floating box to miss with a finger) */
+    .crnote { display: inline; }
+    .crnote .tip { position: static; width: auto; margin-top: 6px; box-shadow: none; font-size: 13px; }
+    .crnote:hover .tip { display: none; } .crnote.open .tip { display: block; }
+  }
   .crappr { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 3px; border-radius: 999px; border: 1px solid var(--line);
             font-size: 13px; color: var(--muted); }
   .crappr .av { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; font-weight: 700; }
@@ -2082,6 +2097,24 @@ function crKeepScroll(draw) {
   if (window.scrollTo) window.scrollTo(0, keep.page);
 }
 function crPaint() { crKeepScroll(crPaintNow); }
+// The joint account's label with its memo (hover / tap to show, 編集 to change; saved on the server for both logins).
+// Desktop: open the memo towards the left when it would run off the right edge.
+function crNoteFit(el) {
+  const tile = el.closest(".tile") || el;
+  el.classList.toggle("rt", tile.getBoundingClientRect().left + 320 > window.innerWidth);
+}
+document.addEventListener("mouseover", ev => { const n = ev.target.closest && ev.target.closest("[data-crnote]"); if (n) crNoteFit(n); });
+function crNoteLabel(c, key, label, slot = "") {
+  const n = (c.notes || {})[key], id = key + (slot ? ":" + slot : "");
+  const editing = state.crNoteEdit === id;
+  const body = editing
+    ? `<textarea class="cr-note-text" placeholder="例: 毎月いくら入れているか、この口座で払うもの">${esc(n ? n.text : "")}</textarea>
+       <div class="row" style="margin-top:6px"><button class="btn primary" data-crnotesave="${esc(key)}">保存</button><button class="btn" data-crnotecancel>やめる</button></div>`
+    : `${n ? `<div class="txt">${esc(n.text)}</div>` : '<span class="muted">メモはまだありません。</span>'}
+       <div class="row" style="margin-top:6px;justify-content:space-between"><span class="cal-legend" style="margin:0">${n && n.at ? esc(n.at.replace("T", " ")) + (n.by ? " " + esc(n.by) : "") : ""}</span>
+         <button class="btn" data-crnoteedit="${esc(id)}">編集</button></div>`;
+  return `<span class="crnote ${editing ? "open" : ""}" data-crnote="${esc(key)}" tabindex="0">${esc(label)}<span class="ico">ⓘ</span><span class="tip">${body}</span></span>`;
+}
 function crPaintTable() { crKeepScroll(crPaintTableNow); }
 function crPaintNow() {
   const main = document.getElementById("main");
@@ -2102,9 +2135,9 @@ function crPaintNow() {
       <div class="cal-legend" style="margin:4px 0 0">請求額 <input class="crin" id="cr-billed" value="${s.billed ?? ""}" placeholder="任意" style="font-size:13px;width:110px" ${lock}> ${billedOk}</div></div>
     <div class="tile"><div class="label">${esc(ma.label)} の入金額</div><div class="value">${yen(s.deposit.a)}</div></div>
     <div class="tile"><div class="label">${esc(mb.label)} の入金額</div><div class="value">${yen(s.deposit.b)}</div></div>
-    <div class="tile"><div class="label">${esc(c.shared_label)} の負担</div><div class="value">${yen(s.total.shared)}</div></div>
+    <div class="tile" style="overflow:visible"><div class="label">${crNoteLabel(c, "shared", c.shared_label, "cost")} の負担</div><div class="value">${yen(s.total.shared)}</div></div>
     <div class="tile"><div class="label">${esc(c.account_label)} の残高</div><input class="crin" id="cr-balance" value="${s.balance ?? ""}" placeholder="残高を入力" ${lock}></div>
-    <div class="tile"><div class="label">${esc(c.shared_label)} からの入金額</div><div class="value">${yen(s.deposit.shared)}</div></div>
+    <div class="tile" style="overflow:visible"><div class="label">${crNoteLabel(c, "shared", c.shared_label, "in")} からの入金額</div><div class="value">${yen(s.deposit.shared)}</div></div>
     <div class="tile"><div class="label">未確認</div><div class="value">${s.unchecked} 件</div></div></div>`;
   const head = `<div class="card"><h2>${months} ${s.closed ? `<span class="pill ok">確定済み ${esc((s.closed_at || "").replace("T", " "))}</span>` : ""}
     <span class="right">${s.closed ? '<button class="btn" id="cr-reopen">確定を取り消す</button>'
@@ -2207,6 +2240,22 @@ async function crUpdate(ids, change) {
 document.addEventListener("click", async ev => {
   const go = ev.target.closest("[data-crgo]");
   if (go) { state.crMonth = go.dataset.crgo; state.crSel = new Set(); await renderCredit(true); window.scrollTo(0, 0); return; }
+  const ne = ev.target.closest("[data-crnoteedit],[data-crnotesave],[data-crnotecancel]");
+  if (ne) {
+    ev.stopPropagation();
+    if (ne.dataset.crnoteedit) { state.crNoteEdit = ne.dataset.crnoteedit; crPaint(); document.querySelector(".crnote.open .cr-note-text")?.focus(); return; }
+    if (ne.dataset.crnotesave) {
+      try { state.crCfg = await api("/api/credit/note", { key: ne.dataset.crnotesave, text: ne.closest(".tip").querySelector(".cr-note-text").value });
+            state.crNoteEdit = ""; toast("メモを保存しました"); crPaint(); }
+      catch (e) { toast(e.message); }
+      return;
+    }
+    state.crNoteEdit = ""; crPaint(); return;
+  }
+  const note = ev.target.closest("[data-crnote]");
+  if (note) crNoteFit(note);
+  document.querySelectorAll(".crnote.open").forEach(el => { if (el !== note && !state.crNoteEdit) el.classList.remove("open"); });
+  if (note) { if (!ev.target.closest(".tip")) note.classList.toggle("open"); return; }
   const step = ev.target.closest("[data-crstep]");
   document.querySelectorAll(".crstep.open").forEach(el => { if (el !== step) el.classList.remove("open"); });
   if (step) { step.classList.toggle("open"); return; }

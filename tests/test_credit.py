@@ -274,3 +274,13 @@ def test_approve_can_be_withdrawn(cfg):
     credit.approve("202611", GUEST)
     assert "guest" in credit.month_view("202611")["approvals"]
     assert credit.approve("202611", GUEST, approved=False)["approvals"] == {}
+
+
+def test_memo_on_the_joint_account_label(cfg):
+    assert credit.public_config()["notes"] == {}
+    c = credit.set_note("shared", "  毎月入金している額のメモ  ", {"name": "yuka"})
+    assert c["notes"]["shared"]["text"] == "毎月入金している額のメモ" and c["notes"]["shared"]["by"] == "yuka"
+    assert credit.public_config()["notes"]["shared"]["at"]
+    assert credit.set_note("shared", "")["notes"] == {}  # empty removes it
+    with pytest.raises(ValueError):
+        credit.set_note("other", "x")
