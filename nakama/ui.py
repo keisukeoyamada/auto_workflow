@@ -2420,8 +2420,10 @@ class _Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/devreq":
             from . import devreq
             guest = self._role() == "guest"
+            from . import cronja, devtriage
             self._dispatch(lambda: {"requests": devreq.for_family() if guest else devreq.load(),
-                                    "statuses": devreq.STATUSES, "guest": guest, "repo": build_info()["repo"]})
+                                    "statuses": devreq.STATUSES, "guest": guest, "repo": build_info()["repo"],
+                                    "triage": devtriage.state() | {"schedule_ja": cronja.describe(devtriage.schedule())}})
         elif url.path == "/api/cron/help":
             self._dispatch(lambda: {"help": cronja.HELP})
         elif url.path == "/api/overtime":
@@ -2551,6 +2553,12 @@ class _Handler(BaseHTTPRequestHandler):
             guest = me["role"] == "guest"
             self._dispatch(lambda: devreq.add(str(body.get("text", "")), note="" if guest else str(body.get("note", "")),
                                               by=me["role"], by_name=me["name"], family=bool(body.get("family"))))
+        elif url.path == "/api/devreq/triage":
+            from . import devtriage
+            if self._role() == "guest":
+                self._send(403, {"error": "forbidden for this login"})
+            else:
+                self._dispatch(lambda: devtriage.start([str(body["id"])] if body.get("id") else None))
         elif url.path == "/api/devreq/update":
             from . import devreq
             self._dispatch(lambda: devreq.update(str(body.get("id", "")), body.get("status"), body.get("note"),

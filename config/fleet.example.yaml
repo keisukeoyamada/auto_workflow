@@ -222,3 +222,10 @@ agents:
   #   pin_version: 3                 # run agents/<name>/versions/v003.md instead of LOCAL.md
   #   disallowed_tools: ["mcp__gmail__send_email"]   # block risky MCP tools explicitly
   #   web: true                      # allow WebSearch / WebFetch (default: false)
+
+# 要望タブ: Claude が要望を朝・昼・夜に読んで要件を書く（コードには触らない。docs/GUIDE.md 参照）
+# devreq:
+#   triage:
+#     enabled: true
+#     schedule: "45 6,11,19 * * *"
+#     max_per_run: 5

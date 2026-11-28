@@ -81,6 +81,7 @@ class Fleet:
     meeting_prompts: list[Any] = field(default_factory=list)  # "take AI minutes" nudges around recurring meetings
     credit: dict[str, Any] = field(default_factory=dict)  # credit card statement split tab (off by default)
     rongo: dict[str, Any] = field(default_factory=dict)  # the Analects, one chapter a day (off by default)
+    devreq: dict[str, Any] = field(default_factory=dict)  # 要望 tab: triage (requirements by Claude, off by default)
     ui_users: dict[str, Any] = field(default_factory=dict)  # display name / colour per login (owner, guest)
 
 
@@ -132,6 +133,7 @@ def load_fleet(path: Path | None = None) -> Fleet:
         meeting_prompts=raw.get("meeting_prompts") or [],
         credit=raw.get("credit") or {},
         rongo=raw.get("rongo") or {},
+        devreq=raw.get("devreq") or {},
         ui_users=raw.get("ui_users") or {},
         timezone=raw.get("timezone", "UTC"),
         owner=raw.get("owner") or {},
