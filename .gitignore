@@ -56,3 +56,8 @@ references/
 build-info.json
 # Synology metadata folders
 @eaDir/
+
+# devbox: its clone of the repository, and secrets (GitHub token, forbidden words)
+devbox/
+secrets/*
+!secrets/.gitkeep

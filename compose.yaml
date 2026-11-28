@@ -2,6 +2,7 @@ services:
   nakama:
     build:
       context: .
+      target: app
       args:
         UID: ${UID:-1000}
         GID: ${GID:-1000}
@@ -32,3 +33,32 @@ services:
     ports:
       - "127.0.0.1:8765:8765"
       # NAS / LAN access: use "8765:8765" and set NAKAMA_UI_PASSWORD + NAKAMA_UI_ALLOW_HOSTS in .env
+
+  # Optional: implements 要望 marked 着手OK and opens draft pull requests (docs/GUIDE.md「要望の実装」).
+  # Starts only with COMPOSE_PROFILES=devbox in .env. It sees no household data: only the job queue,
+  # its own clone of the repository and the secrets/ folder (GitHub token, root-only).
+  devbox:
+    profiles: ["devbox"]
+    build:
+      context: .
+      target: devbox
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    image: nakama-devbox:local
+    container_name: nakama-devbox
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Tokyo}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}   # only the Claude credential, not the whole .env
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      DEVBOX_UID: ${UID:-1000}                               # queue files stay readable by the dashboard
+      DEVBOX_GID: ${GID:-1000}
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    # mem_limit: 2g
+    volumes:
+      - ./workspace/devq:/queue
+      - ./devbox:/work
+      - ./secrets:/run/devbox:ro

@@ -229,3 +229,8 @@ agents:
 #     enabled: true
 #     schedule: "45 6,11,19 * * *"
 #     max_per_run: 5
+#   implement:                 # 着手OK を devbox が実装して下書き PR を出す（compose の devbox プロファイルが必要）
+#     enabled: true
+#     schedule: "20 1 * * *"
+#     budget_usd: 3            # 1 件あたりの上限（API 換算）
+#     rounds: 3                # テスト・レビューで差し戻す回数

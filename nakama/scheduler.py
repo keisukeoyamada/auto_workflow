@@ -47,6 +47,12 @@ def _triage_job() -> None:
     log.info("devreq triage: %s", devtriage.run())
 
 
+def _implement_job() -> None:
+    from . import devimpl
+
+    log.info("devreq implement: %s", devimpl.run_scheduled())
+
+
 def _add_agent_jobs(scheduler: BlockingScheduler) -> None:
     fleet = load_fleet()
     grace = int(fleet.limits.get("misfire_grace_seconds") or 3600)
@@ -64,6 +70,13 @@ def _add_agent_jobs(scheduler: BlockingScheduler) -> None:
         scheduler.add_job(_triage_job, CronTrigger.from_crontab(str(triage_cfg.get("schedule") or TRIAGE_SCHEDULE),
                                                                 timezone=fleet.timezone),
                           id="devreq#triage", max_instances=1, coalesce=True, misfire_grace_time=grace)
+    impl_cfg = (fleet.devreq or {}).get("implement") or {}
+    if impl_cfg.get("enabled"):  # hands 着手OK requests to the devbox container (which does the work)
+        from .devimpl import DEFAULT_SCHEDULE as IMPL_SCHEDULE
+
+        scheduler.add_job(_implement_job, CronTrigger.from_crontab(str(impl_cfg.get("schedule") or IMPL_SCHEDULE),
+                                                                   timezone=fleet.timezone),
+                          id="devreq#implement", max_instances=1, coalesce=True, misfire_grace_time=grace)
     for name, spec in fleet.agents.items():
         if not spec.enabled:
             continue

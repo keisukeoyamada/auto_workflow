@@ -1,5 +1,5 @@
 # Nakama fleet runner. Code is baked in; data dirs are bind-mounted (see compose.yaml).
-FROM python:3.12-slim
+FROM python:3.12-slim AS app
 
 # Node.js is only needed for stdio MCP servers launched via `npx`. Build with --build-arg WITH_NODE=false to skip.
 ARG WITH_NODE=true
@@ -39,3 +39,13 @@ USER nakama
 ENV NAKAMA_HOME=/app PYTHONUNBUFFERED=1
 ENTRYPOINT ["python", "-m", "nakama"]
 CMD ["serve"]
+
+# ---- devbox (optional, compose profile "devbox"): implements 着手OK requests and opens draft PRs ----
+# Same code plus git and pytest. The worker runs as root only to read the root-only GitHub token;
+# Claude, git and pytest run as the unprivileged "nakama" user (see nakama/devbox.py).
+FROM app AS devbox
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir "pytest>=8"
+CMD ["devbox"]

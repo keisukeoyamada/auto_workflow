@@ -1343,8 +1343,8 @@ async function refreshAfterTaskChange() {
 }
 
 // ---------- requests to Nakama itself ----------
-const DQ = { open: ["オープン", "open"], ready: ["着手OK", "ok"], partial: ["一部対応", "waiting"], consult: ["要相談", "off"], done: ["完了", "done"], hold: ["保留", "off"], dropped: ["取り下げ", "off"] };
-const DQ_BG = { ready: "", open: "var(--accent-soft)", partial: "var(--partial)", consult: "var(--off)", hold: "var(--code)", done: "", dropped: "" };
+const DQ = { open: ["オープン", "open"], ready: ["着手OK", "ok"], working: ["実装中", "waiting"], review: ["レビュー待ち", "open"], partial: ["一部対応", "waiting"], consult: ["要相談", "off"], done: ["完了", "done"], hold: ["保留", "off"], dropped: ["取り下げ", "off"] };
+const DQ_BG = { ready: "", working: "var(--partial)", review: "var(--accent-soft)", open: "var(--accent-soft)", partial: "var(--partial)", consult: "var(--off)", hold: "var(--code)", done: "", dropped: "" };
 // "#17, #18" or pull-request URLs -> links (the repository comes from the build, see Dockerfile)
 function dqPrLinks(pr, repo) {
   return String(pr || "").split(/[\s,、]+/).filter(Boolean).map(x => {
@@ -1364,6 +1364,15 @@ function dqSpec(x) {
     ${qs.length ? `<div style="margin:0 0 6px"><b>決めてほしいこと</b>（下の「指示」に答えると、次の回で要件を更新します）<ul>${qs.map(q => `<li>${esc(q)}</li>`).join("")}</ul></div>` : ""}
     <div class="md">${renderMarkdown(t.spec || "")}</div></div>`;
 }
+function dqImplLine(r) {
+  const g = r.implement || {};
+  if (r.guest || !g.enabled) return "";
+  const b = g.devbox || {};
+  const box = !b.at ? '<span style="color:var(--bad)">devbox がまだ動いていません（docs/GUIDE.md「要望の実装」）</span>'
+    : !g.alive ? `<span style="color:var(--bad)">devbox の応答がありません（最終 ${esc(b.at.slice(5, 16).replace("T", " "))}）</span>`
+    : b.current ? `devbox: ${esc(b.current)} を${esc(b.phase || "作業")}中` : "devbox: 待機中";
+  return `<div class="cal-legend" style="margin:-4px 0 8px">実装（devbox）: ${esc(g.schedule_ja || g.schedule)}に「着手OK」を実装して下書き PR を作ります（行の「実装する」ですぐにも）。${box}${(g.queued || []).length ? `・順番待ち ${g.queued.length} 件` : ""}</div>`;
+}
 function dqTriageLine(r) {
   const g = r.triage || {};
   if (!g.enabled) return r.guest ? "" : '<div class="cal-legend" style="margin:0 0 8px">要件定義（Claude）は無効です。fleet.yaml の <code>devreq.triage.enabled: true</code> で、要望を定期的に読んで要件を書きます。</div>';
@@ -1378,8 +1387,8 @@ async function renderDevreq() {
   try { r = await api("/api/devreq"); } catch (e) { main.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   state.dq = r.requests;
   clearTimeout(state.dqPoll);  // while the triage runs, refresh now and then (not while a row is open for editing)
-  if ((r.triage || {}).running && !state.dqOpen) state.dqPoll = setTimeout(() => { if (state.tab === "devreq") renderDevreq(); }, 6000);
-  const order = { consult: 0, open: 1, ready: 2, partial: 3, hold: 4, done: 5, dropped: 6 };
+  if (((r.triage || {}).running || ((r.implement || {}).devbox || {}).current) && !state.dqOpen) state.dqPoll = setTimeout(() => { if (state.tab === "devreq") renderDevreq(); }, 6000);
+  const order = { review: 0, consult: 1, open: 2, ready: 3, working: 4, partial: 5, hold: 6, done: 7, dropped: 8 };
   const fam = !r.guest;  // the 家族 column is the owner's; a guest sees only family requests anyway
   const count = s => r.requests.filter(x => x.status === s).length;
   const tiles = `<div class="tiles">${Object.entries(DQ).map(([k, [l]]) => `<div class="tile"><div class="label">${l}</div><div class="value">${count(k)}</div></div>`).join("")}</div>`;
@@ -1396,12 +1405,13 @@ async function renderDevreq() {
   const byWho = x => userChip(person(x.by === "guest" ? "guest" : "owner", x.by_name));
   main.innerHTML = tiles + `<div class="card"><h2>要望・対応状況 <span class="right" style="font-weight:400;font-size:12px">${viewBtn}
       <label style="cursor:pointer;margin-left:8px"><input type="checkbox" id="show-done" ${state.showDone ? "checked" : ""}> 完了・取り下げも表示</label></span></h2>
-      ${dqTriageLine(r)}
+      ${dqTriageLine(r)}${dqImplLine(r)}
       ${r.guest ? '<div class="cal-legend" style="margin:0 0 8px">家族の要望だけが表示されます。行を押すと、メモへの返信や対応内容が見られます。やめたいときは状態を「取り下げ」に。</div>' : ""}
       <div class="row" style="margin-bottom:8px"><input id="dq-text" placeholder="新しい要望" style="flex:1;min-width:200px"><button class="btn primary" id="dq-add">追加（オープン）</button></div>
       <div class="tablewrap"><table><tr><th>#</th><th>状態</th><th>だれ</th><th>要望（押すと変更内容・使い方）</th>${fam ? '<th title="チェックすると家族のログインにも表示">家族</th>' : ""}<th>${r.guest ? "指示・返信" : "あなたの指示"}</th><th>メモ（Claude）</th></tr>${rows.map(x => `<tr data-dqrow="${esc(x.id)}" style="cursor:pointer;background:${DQ_BG[x.status] || ""}">
         <td class="muted">${esc(x.id)}</td>
-        <td><select data-dq="${esc(x.id)}" ${r.guest && x.status === "ready" ? "disabled" : ""}>${r.statuses.filter(s => !r.guest || s !== "ready" || x.status === "ready").map(s => `<option value="${s}" ${s === x.status ? "selected" : ""}>${DQ[s][0]}</option>`).join("")}</select></td>
+        <td><select data-dq="${esc(x.id)}" ${r.guest && ["ready", "working", "review"].includes(x.status) ? "disabled" : ""}>${r.statuses.filter(s => !r.guest || !["ready", "working", "review"].includes(s) || x.status === s).map(s => `<option value="${s}" ${s === x.status ? "selected" : ""}>${DQ[s][0]}</option>`).join("")}</select>
+          ${!r.guest && x.status === "ready" && (r.implement || {}).enabled ? `<button class="btn" data-dqimpl="${esc(x.id)}" style="margin-top:4px;padding:2px 8px">実装する</button>` : ""}</td>
         <td>${byWho(x)}</td><td>${esc(x.text)}${x.pr ? ` <span class="cal-legend" style="margin:0">PR ${dqPrLinks(x.pr, r.repo)}</span>` : ""}</td>${fam ? `<td><input type="checkbox" data-dqfam="${esc(x.id)}" ${x.family ? "checked" : ""} title="家族のログインにも表示"></td>` : ""}
         <td style="font-weight:600">${esc(x.instruction || "")}</td><td class="muted">${x.triage ? `${x.triage.size ? `<b>[${esc(x.triage.size)}]</b> ` : ""}${esc(x.triage.summary)}${(x.triage.questions || []).length ? ' <span class="pill off">質問あり</span>' : ""}` : esc(x.note)}</td></tr>
         ${state.dqOpen === x.id ? `<tr data-attach><td></td><td colspan="${fam ? 6 : 5}"><div class="card" style="margin:4px 0">
@@ -2843,7 +2853,7 @@ async function refreshOverview(force = false) {
 
 // ---------- events ----------
 document.addEventListener("click", async ev => {
-  const t = ev.target.closest("[data-tab],[data-run],[data-path],[data-status],[data-copyblock],#copy,#reqsend,#logreload,#att-add,#att-paste,#agents-toggle,#samples-toggle,#tasks-done,[data-openitem],#memo-save,[data-ganttbig],[data-taskstar],[data-donego],#rem-add,[data-remdone],#brief-run,[data-deckjob],[data-decktpl],[data-deckreview],#ag-add,[data-agst],[data-agsug],[data-wbsopen],[data-wbsdate],#wbs-listtoggle,[data-wbsflush],[data-wbsdiscard],[data-gowbs],[data-vdir],[data-vfile],#v-root-save,#v-unlock,#v-edit,#v-save,#v-cancel,#pj-save,[data-pjdel],#vp-save,[data-duecell],#run-all,#pf-save,#notify-test,#ot-add,[data-omonth],[data-otcopy],[data-otdel],#memo-hist,#r-due-save,#r-due-reset,[data-taskdue],#dq-add,#dq-view,#dq-save,#dq-triage,[data-dqrow],[data-tmonth],[data-taskdone],[data-assist],[data-goroutine],[data-gonote],#nt-add,[data-notechild],#show-done,#note-reload,#note-savebtn,[data-rid],[data-rmonth],[data-rstatus],#r-all,#h-add,#h-import,[data-hdel],[data-note],#note-save,#chat-toggle,#chat-close,#chat-new,#chat-send,[data-memo],[data-memo-open],[data-memoapply],[data-memodismiss],[data-job],[data-klog],#kh-start,#kh-cycle-am,#kh-cycle-pm,#kh-approve,[data-ack],[data-nid],#ack-all,#notif-acked,[data-copydraft],[data-runscript],[data-saveplan],[data-react],#qmemo-btn,#qmemo-save,#qmemo-task,#qmemo-close,[data-copyscript],[data-fbsend],[data-setting],#setting-save");
+  const t = ev.target.closest("[data-tab],[data-run],[data-path],[data-status],[data-copyblock],#copy,#reqsend,#logreload,#att-add,#att-paste,#agents-toggle,#samples-toggle,#tasks-done,[data-openitem],#memo-save,[data-ganttbig],[data-taskstar],[data-donego],#rem-add,[data-remdone],#brief-run,[data-deckjob],[data-decktpl],[data-deckreview],#ag-add,[data-agst],[data-agsug],[data-wbsopen],[data-wbsdate],#wbs-listtoggle,[data-wbsflush],[data-wbsdiscard],[data-gowbs],[data-vdir],[data-vfile],#v-root-save,#v-unlock,#v-edit,#v-save,#v-cancel,#pj-save,[data-pjdel],#vp-save,[data-duecell],#run-all,#pf-save,#notify-test,#ot-add,[data-omonth],[data-otcopy],[data-otdel],#memo-hist,#r-due-save,#r-due-reset,[data-taskdue],#dq-add,#dq-view,#dq-save,#dq-triage,[data-dqimpl],[data-dqrow],[data-tmonth],[data-taskdone],[data-assist],[data-goroutine],[data-gonote],#nt-add,[data-notechild],#show-done,#note-reload,#note-savebtn,[data-rid],[data-rmonth],[data-rstatus],#r-all,#h-add,#h-import,[data-hdel],[data-note],#note-save,#chat-toggle,#chat-close,#chat-new,#chat-send,[data-memo],[data-memo-open],[data-memoapply],[data-memodismiss],[data-job],[data-klog],#kh-start,#kh-cycle-am,#kh-cycle-pm,#kh-approve,[data-ack],[data-nid],#ack-all,#notif-acked,[data-copydraft],[data-runscript],[data-saveplan],[data-react],#qmemo-btn,#qmemo-save,#qmemo-task,#qmemo-close,[data-copyscript],[data-fbsend],[data-setting],#setting-save");
   if (!t) return;
   if (t.dataset.duecell !== undefined) {
     ev.stopPropagation();
@@ -3049,6 +3059,12 @@ document.addEventListener("click", async ev => {
     return;
   }
   if (t.id === "dq-view") { state.dqNotes = !state.dqNotes; renderDevreq(); return; }
+  if (t.dataset && t.dataset.dqimpl) {
+    if (!confirm(`${t.dataset.dqimpl} を devbox に渡して実装します（下書き PR ができます）。よろしいですか？`)) return;
+    try { const res = await api("/api/devreq/implement", { id: t.dataset.dqimpl }); toast(res.queued.length ? "devbox に渡しました" : "渡せるものがありませんでした"); renderDevreq(); }
+    catch (e) { toast(e.message); }
+    return;
+  }
   if (t.id === "dq-triage") {
     try { await api("/api/devreq/triage", {}); toast("要件定義を始めました（数分かかります）"); setTimeout(renderDevreq, 1500); }
     catch (e) { toast(e.message); }

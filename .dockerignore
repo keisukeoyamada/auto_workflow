@@ -12,3 +12,6 @@ config/*.json
 references
 # Synology metadata folders
 @eaDir/
+
+devbox/
+secrets/
