@@ -7,6 +7,7 @@ services:
         GID: ${GID:-1000}
         GIT_COMMIT: ${GIT_COMMIT:-}            # set by scripts/nas-autodeploy.sh (shown in the footer)
         GIT_COMMIT_DATE: ${GIT_COMMIT_DATE:-}
+        GIT_REPO_URL: ${GIT_REPO_URL:-}        # to link "#17" in the 要望 tab to the pull request
     image: nakama:local
     container_name: nakama
     restart: unless-stopped        # comes back after reboot as long as Docker starts

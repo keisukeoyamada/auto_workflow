@@ -1315,6 +1315,15 @@ async function refreshAfterTaskChange() {
 // ---------- requests to Nakama itself ----------
 const DQ = { open: ["オープン", "open"], partial: ["一部対応", "waiting"], consult: ["要相談", "off"], done: ["完了", "done"], hold: ["保留", "off"], dropped: ["取り下げ", "off"] };
 const DQ_BG = { open: "var(--accent-soft)", partial: "var(--partial)", consult: "var(--off)", hold: "var(--code)", done: "", dropped: "" };
+// "#17, #18" or pull-request URLs -> links (the repository comes from the build, see Dockerfile)
+function dqPrLinks(pr, repo) {
+  return String(pr || "").split(/[\s,、]+/).filter(Boolean).map(x => {
+    const n = (x.match(/^#?(\d+)$/) || [])[1];
+    if (n) return repo ? `<a href="${esc(repo)}/pull/${n}" target="_blank" rel="noopener noreferrer">#${n}</a>` : `#${n}`;
+    if (/^https:\/\/github\.com\//.test(x)) { const m = x.match(/\/pull\/(\d+)/); return `<a href="${esc(x)}" target="_blank" rel="noopener noreferrer">${m ? "#" + m[1] : "PR"}</a>`; }
+    return esc(x);
+  }).join(" ");
+}
 async function renderDevreq() {
   const main = document.getElementById("main");
   let r;
@@ -1330,7 +1339,7 @@ async function renderDevreq() {
     main.innerHTML = tiles + `<div class="card"><h2>リリースノート（${items.length} 件） <span class="right">${viewBtn}</span></h2>
       ${items.map(x => `<div style="border-bottom:1px solid var(--line);padding:10px 0">
         <div><strong>${esc(x.id)} ${esc(x.text)}</strong> ${pill(DQ[x.status][0], DQ[x.status][1])}</div>
-        <div class="md" style="margin-top:4px">${x.instruction ? `<p><strong>あなたの指示:</strong> ${esc(x.instruction)}</p>` : ""}<p><strong>変更内容:</strong> ${esc(x.change || "—")}</p><p><strong>使い方:</strong> ${esc(x.usage || "—")}</p></div></div>`).join("")}</div>`;
+        <div class="md" style="margin-top:4px">${x.instruction ? `<p><strong>あなたの指示:</strong> ${esc(x.instruction)}</p>` : ""}${x.pr ? `<p><strong>対応した PR:</strong> ${dqPrLinks(x.pr, r.repo)}</p>` : ""}<p><strong>変更内容:</strong> ${esc(x.change || "—")}</p><p><strong>使い方:</strong> ${esc(x.usage || "—")}</p></div></div>`).join("")}</div>`;
     return;
   }
   const rows = r.requests.filter(x => state.showDone || (x.status !== "done" && x.status !== "dropped")).sort((a, b) => order[a.status] - order[b.status] || a.id.localeCompare(b.id));
@@ -1342,11 +1351,12 @@ async function renderDevreq() {
       <div class="tablewrap"><table><tr><th>#</th><th>状態</th><th>要望（押すと変更内容・使い方）</th>${fam ? '<th title="チェックすると家族のログインにも表示">家族</th>' : ""}<th>${r.guest ? "指示・返信" : "あなたの指示"}</th><th>メモ（Claude）</th></tr>${rows.map(x => `<tr data-dqrow="${esc(x.id)}" style="cursor:pointer;background:${DQ_BG[x.status] || ""}">
         <td class="muted">${esc(x.id)}</td>
         <td><select data-dq="${esc(x.id)}">${r.statuses.map(s => `<option value="${s}" ${s === x.status ? "selected" : ""}>${DQ[s][0]}</option>`).join("")}</select></td>
-        <td>${esc(x.text)} ${byWho(x)}</td>${fam ? `<td><input type="checkbox" data-dqfam="${esc(x.id)}" ${x.family ? "checked" : ""} title="家族のログインにも表示"></td>` : ""}
+        <td>${esc(x.text)} ${byWho(x)}${x.pr ? ` <span class="cal-legend" style="margin:0">PR ${dqPrLinks(x.pr, r.repo)}</span>` : ""}</td>${fam ? `<td><input type="checkbox" data-dqfam="${esc(x.id)}" ${x.family ? "checked" : ""} title="家族のログインにも表示"></td>` : ""}
         <td style="font-weight:600">${esc(x.instruction || "")}</td><td class="muted">${esc(x.note)}</td></tr>
         ${state.dqOpen === x.id ? `<tr data-attach><td></td><td colspan="${fam ? 5 : 4}"><div class="card" style="margin:4px 0">
           <div class="cal-legend" style="margin:0 0 2px;font-weight:600">${r.guest ? "指示・メモへの返信" : "あなたの指示"}（Claude はここを最優先で読む）</div><textarea id="dq-instr" style="min-height:50px">${esc(x.instruction || "")}</textarea>
           <div class="cal-legend" style="margin:6px 0 2px">変更内容（どう修正したか）</div><textarea id="dq-change" style="min-height:70px">${esc(x.change || "")}</textarea>
+          <div class="cal-legend" style="margin:6px 0 2px">対応した PR（#17 のように。複数はカンマ区切り。URL でも可）</div><input id="dq-pr" value="${esc(x.pr || "")}" placeholder="#17" style="width:100%">
           <div class="cal-legend" style="margin:6px 0 2px">使い方</div><textarea id="dq-usage" style="min-height:50px">${esc(x.usage || "")}</textarea>
           <div class="cal-legend" style="margin:6px 0 2px">メモ</div><input id="dq-note" value="${esc(x.note || "")}" style="width:100%">
           <div style="margin-top:6px"><button class="btn primary" id="dq-save" data-id="${esc(x.id)}">保存</button>
@@ -2956,11 +2966,11 @@ document.addEventListener("click", async ev => {
   if (t.id === "dq-view") { state.dqNotes = !state.dqNotes; renderDevreq(); return; }
   if (t.id === "dq-save") {
     const v = id => document.getElementById(id).value;
-    try { await api("/api/devreq/update", { id: t.dataset.id, instruction: v("dq-instr"), change: v("dq-change"), usage: v("dq-usage"), note: v("dq-note") }); toast("保存しました"); renderDevreq(); }
+    try { await api("/api/devreq/update", { id: t.dataset.id, instruction: v("dq-instr"), change: v("dq-change"), usage: v("dq-usage"), note: v("dq-note"), pr: v("dq-pr") }); toast("保存しました"); renderDevreq(); }
     catch (e) { toast(e.message); }
     return;
   }
-  if (t.dataset.dqrow && !ev.target.closest("select,input")) { state.dqOpen = state.dqOpen === t.dataset.dqrow ? "" : t.dataset.dqrow; renderDevreq(); return; }
+  if (t.dataset.dqrow && !ev.target.closest("select,input,a")) { state.dqOpen = state.dqOpen === t.dataset.dqrow ? "" : t.dataset.dqrow; renderDevreq(); return; }
   if (t.id === "dq-add") {
     try { await api("/api/devreq/add", { text: document.getElementById("dq-text").value }); toast("追加しました"); renderDevreq(); }
     catch (e) { toast(e.message); }

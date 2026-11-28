@@ -5,6 +5,7 @@ Stored in workspace/dev/requests.json (git-ignored):
     by, by_name, family}]
   instruction = the owner's direction for this item (answers to 要相談, priorities, "this is fine")
   change = what was changed and how (release note), usage = how to use it
+  pr = the pull request(s) that resolved it, e.g. "#17" or "#17, #18" or URLs (shown as links)
   by / by_name = which login added it (owner | guest) and the name typed at login
   family = shown to the guest login too. Requests the guest adds are always family; the owner's own requests
   stay private unless the owner ticks them (so nothing personal or work-related reaches the family by default).
@@ -65,7 +66,7 @@ def add(text: str, status: str = "open", note: str = "", by: str = "owner", by_n
 
 def update(rid: str, status: str | None = None, note: str | None = None,
            change: str | None = None, usage: str | None = None, instruction: str | None = None,
-           family: bool | None = None, guest: bool = False) -> dict[str, Any]:
+           family: bool | None = None, guest: bool = False, pr: str | None = None) -> dict[str, Any]:
     """guest=True: the family login. It may change only family requests, and not which ones are family."""
     rows = load()
     row = next((r for r in rows if r["id"] == rid), None)
@@ -77,7 +78,8 @@ def update(rid: str, status: str | None = None, note: str | None = None,
         if status not in STATUSES:
             raise ValueError(f"status は {STATUSES} のどれか")
         row["status"] = status
-    for key, value in (("note", note), ("change", change), ("usage", usage), ("instruction", instruction)):
+    for key, value in (("note", note), ("change", change), ("usage", usage), ("instruction", instruction),
+                       ("pr", pr)):
         if value is not None:
             row[key] = str(value)[:4000]
     if family is not None:

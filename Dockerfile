@@ -30,8 +30,9 @@ RUN chown -R ${UID}:${GID} /app
 # scripts/nas-autodeploy.sh passes these; a plain `docker compose build` leaves the commit empty ("手動ビルド").
 ARG GIT_COMMIT=""
 ARG GIT_COMMIT_DATE=""
-RUN printf '{"commit": "%s", "commit_date": "%s", "built_at": "%s"}\n' \
-      "$GIT_COMMIT" "$GIT_COMMIT_DATE" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > /app/build-info.json \
+ARG GIT_REPO_URL=""
+RUN printf '{"commit": "%s", "commit_date": "%s", "repo": "%s", "built_at": "%s"}\n' \
+      "$GIT_COMMIT" "$GIT_COMMIT_DATE" "$GIT_REPO_URL" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > /app/build-info.json \
     && chown ${UID}:${GID} /app/build-info.json
 
 USER nakama

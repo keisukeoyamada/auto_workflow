@@ -231,3 +231,8 @@ def test_build_info_for_the_footer(tmp_path, monkeypatch):
         ' "built_at": "2026-11-28T05:07:00Z"}', encoding="utf-8")
     info = ui.build_info()
     assert info["commit"].startswith("7c1d2ab") and info["commit_date"].startswith("2026-11-28")
+    assert info["repo"] == ""
+    for repo, shown in (("https://github.com/owner/repo", "https://github.com/owner/repo"),
+                        ('javascript:alert(1)', "")):  # only a plain GitHub repository URL is used for links
+        (tmp_path / "build-info.json").write_text(f'{{"commit": "x", "repo": "{repo}"}}', encoding="utf-8")
+        assert ui.build_info()["repo"] == shown
