@@ -1,9 +1,14 @@
 """A small tracker for requests to Nakama itself (what the owner asked for and where it stands).
 
 Stored in workspace/dev/requests.json (git-ignored):
-  [{id, text, status: open|partial|consult|done|hold, instruction, note, change, usage, created, updated}]
+  [{id, text, status: open|partial|consult|done|hold|dropped, instruction, note, change, usage, created, updated,
+    by, by_name, family}]
   instruction = the owner's direction for this item (answers to 要相談, priorities, "this is fine")
   change = what was changed and how (release note), usage = how to use it
+  by / by_name = which login added it (owner | guest) and the name typed at login
+  family = shown to the guest login too. Requests the guest adds are always family; the owner's own requests
+  stay private unless the owner ticks them (so nothing personal or work-related reaches the family by default).
+  The guest can use family requests fully (status, reply to the memo) but never sees or touches the others.
 """
 from __future__ import annotations
 
@@ -14,7 +19,8 @@ from typing import Any
 from .config import WORKSPACE_DIR
 
 FILE = WORKSPACE_DIR / "dev" / "requests.json"
-STATUSES = ("open", "partial", "consult", "done", "hold")  # consult = needs a decision / not feasible as asked
+STATUSES = ("open", "partial", "consult", "done", "hold", "dropped")
+# consult = needs a decision / not feasible as asked, dropped = withdrawn by whoever asked
 
 
 def load() -> list[dict[str, Any]]:
@@ -32,7 +38,13 @@ def _save(rows: list[dict[str, Any]]) -> None:
     tmp.replace(FILE)
 
 
-def add(text: str, status: str = "open", note: str = "") -> dict[str, Any]:
+def for_family(rows: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    """What the guest login may see: family requests only."""
+    return [r for r in (load() if rows is None else rows) if r.get("family")]
+
+
+def add(text: str, status: str = "open", note: str = "", by: str = "owner", by_name: str = "",
+        family: bool = False) -> dict[str, Any]:
     text = text.strip()
     if not text:
         raise ValueError("要望が空です")
@@ -41,7 +53,9 @@ def add(text: str, status: str = "open", note: str = "") -> dict[str, Any]:
     rows = load()
     now = datetime.now().isoformat(timespec="minutes")
     row = {"id": f"q{len(rows) + 1:03d}", "text": text[:1000], "status": status, "note": note[:1000],
-           "created": now, "updated": now}
+           "created": now, "updated": now,
+           "by": by if by in ("owner", "guest") else "owner", "by_name": str(by_name)[:40],
+           "family": bool(family) or by == "guest"}
     while any(r["id"] == row["id"] for r in rows):
         row["id"] = f"q{int(row['id'][1:]) + 1:03d}"
     rows.append(row)
@@ -50,11 +64,15 @@ def add(text: str, status: str = "open", note: str = "") -> dict[str, Any]:
 
 
 def update(rid: str, status: str | None = None, note: str | None = None,
-           change: str | None = None, usage: str | None = None, instruction: str | None = None) -> dict[str, Any]:
+           change: str | None = None, usage: str | None = None, instruction: str | None = None,
+           family: bool | None = None, guest: bool = False) -> dict[str, Any]:
+    """guest=True: the family login. It may change only family requests, and not which ones are family."""
     rows = load()
     row = next((r for r in rows if r["id"] == rid), None)
-    if row is None:
-        raise ValueError(f"unknown request: {rid}")
+    if row is None or (guest and not row.get("family")):
+        raise ValueError(f"unknown request: {rid}")  # the same answer as for a missing id: nothing leaks
+    if guest and family is not None:
+        raise PermissionError("家族に見せるかどうかは、オーナーだけが変えられます")
     if status is not None:
         if status not in STATUSES:
             raise ValueError(f"status は {STATUSES} のどれか")
@@ -62,6 +80,8 @@ def update(rid: str, status: str | None = None, note: str | None = None,
     for key, value in (("note", note), ("change", change), ("usage", usage), ("instruction", instruction)):
         if value is not None:
             row[key] = str(value)[:4000]
+    if family is not None:
+        row["family"] = bool(family)
     row["updated"] = datetime.now().isoformat(timespec="minutes")
     _save(rows)
     return row

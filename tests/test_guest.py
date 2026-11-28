@@ -148,3 +148,32 @@ def test_me_and_guest_can_approve_credit(server, tmp_path, monkeypatch):
     data = json.loads(body)
     assert code == 200 and data["approvals"]["guest"]["name"] == "yuka"
     assert [u["name"] for u in data["approvers"]] == ["A", "yuka"] and "承認待ち: A" in data["problems"]
+
+
+def test_guest_sees_only_family_requests(server, tmp_path, monkeypatch):
+    from nakama import devreq
+
+    monkeypatch.setenv("NAKAMA_UI_GUEST_TABS", "credit,devreq")
+    srv = ui.make_server("127.0.0.1", 0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        monkeypatch.setattr(devreq, "FILE", tmp_path / "requests.json")
+        private = devreq.add("仕事の話", note="memo")
+        shared = devreq.add("家族向け", family=True)
+        cookie = _login(srv, "guest-pw", user="yuka")
+        token = _token(_req(srv, "GET", "/", cookie=cookie)[1])
+        data = json.loads(_req(srv, "GET", "/api/devreq", token=token, cookie=cookie)[1])
+        assert data["guest"] and [r["id"] for r in data["requests"]] == [shared["id"]]
+        code, body = _req(srv, "POST", "/api/devreq/add", token=token, cookie=cookie, body={"text": "献立を出して", "note": "x"})
+        row = json.loads(body)
+        assert code == 200 and (row["by"], row["by_name"], row["family"], row["note"]) == ("guest", "yuka", True, "")
+        upd = lambda body: _req(srv, "POST", "/api/devreq/update", token=token, cookie=cookie, body=body)  # noqa: E731
+        code, body = upd({"id": shared["id"], "status": "dropped", "instruction": "やっぱりいらない"})  # family ones: full use
+        assert code == 200 and (json.loads(body)["status"], json.loads(body)["instruction"]) == ("dropped", "やっぱりいらない")
+        assert upd({"id": private["id"], "status": "done"})[0] == 400  # the owner's own: as if it did not exist
+        assert upd({"id": shared["id"], "family": False})[0] == 403  # only the owner decides what is shared
+        assert devreq.load()[0]["status"] == "open" and not devreq.load()[0]["family"]
+        devreq.update(private["id"], family=True)  # the owner can share one later
+        assert len(devreq.for_family()) == 3
+    finally:
+        srv.shutdown()

@@ -4,7 +4,8 @@
   nakama/data/lunyu.json (from the chinese-poetry project, MIT; see nakama/data/README.md). No download.
 - Each morning Claude writes the next few chapters' 書き下し文 / 現代語訳 / 語句 / 教訓 / 今日の問い into
   workspace/rongo/notes/<id>.md (one short call per chapter, no tools). Only the chapter text is sent.
-- What you have read and starred is kept in workspace/rongo/progress.json (all of workspace/ is git-ignored).
+- What each login (owner / guest) has read and starred is kept in workspace/rongo/progress.json
+  (all of workspace/ is git-ignored).
 """
 from __future__ import annotations
 
@@ -109,38 +110,60 @@ def _today() -> date:
 
 # ---------- reading progress ----------
 
-def _state() -> dict[str, dict[str, str]]:
-    """progress.json = {"read": {id: date}, "fav": {id: date}}."""
+USERS = ("owner", "guest")  # the dashboard logins; each keeps its own reading and stars
+
+
+def _all_state() -> dict[str, dict[str, dict[str, str]]]:
+    """progress.json = {"read": {id: date}, "fav": {id: date}, "users": {"guest": {"read": …, "fav": …}}}.
+    The owner's record stays at the top level (the file from before per-user reading still works)."""
     data = _read_json("progress.json", {})
     data = data if isinstance(data, dict) else {}
-    return {k: dict(data.get(k) or {}) for k in ("read", "fav")}
+    users = data.get("users") if isinstance(data.get("users"), dict) else {}
+    out = {}
+    for u in USERS:
+        src = data if u == "owner" else (users.get(u) if isinstance(users.get(u), dict) else {})
+        out[u] = {k: dict(src.get(k) or {}) for k in ("read", "fav")}
+    return out
 
 
-def _progress() -> dict[str, str]:
-    return _state()["read"]
+def _write_all(st: dict[str, dict[str, dict[str, str]]]) -> None:
+    _write_json("progress.json", st["owner"] | {"users": {u: st[u] for u in USERS if u != "owner"}})
 
 
-def _toggle(kind: str, cid: str, on: bool, today: date | None) -> dict[str, Any]:
+def _state(user: str = "owner") -> dict[str, dict[str, str]]:
+    return _all_state()[_user(user)]
+
+
+def _user(user: str) -> str:
+    return user if user in USERS else "owner"
+
+
+def _progress(user: str = "owner") -> dict[str, str]:
+    return _state(user)["read"]
+
+
+def _toggle(kind: str, cid: str, on: bool, today: date | None, user: str) -> dict[str, Any]:
     _require_enabled()
     if cid not in {c["id"] for c in chapters()}:
         raise ValueError("その章はありません")
+    user = _user(user)
     with _lock:
-        st = _state()
+        st = _all_state()
         if on:
-            st[kind].setdefault(cid, (today or _today()).isoformat())
+            st[user][kind].setdefault(cid, (today or _today()).isoformat())
         else:
-            st[kind].pop(cid, None)
-        _write_json("progress.json", st)
-    return status(cid)
+            st[user][kind].pop(cid, None)
+        _write_all(st)
+    return status(cid, user=user)
 
 
-def mark_read(cid: str, read: bool = True, today: date | None = None) -> dict[str, Any]:
-    return _toggle("read", cid, read, today)
+def mark_read(cid: str, read: bool = True, today: date | None = None, user: str = "owner") -> dict[str, Any]:
+    return _toggle("read", cid, read, today, user)
 
 
-def set_fav(cid: str, fav: bool = True, today: date | None = None) -> dict[str, Any]:
+def set_fav(cid: str, fav: bool = True, today: date | None = None, user: str = "owner") -> dict[str, Any]:
     """Star a chapter to come back to it (independent of reading)."""
-    return _toggle("fav", cid, fav, today)
+    return _toggle("fav", cid, fav, today, user)
 
 
 def _section(note: str | None, title: str) -> str:
@@ -167,7 +190,10 @@ def _chapter_view(c: dict[str, Any], done: dict[str, str], fav: dict[str, str]) 
                 "note": path.read_text(encoding="utf-8") if path.exists() else None}
 
 
-def status(cid: str = "", today: date | None = None) -> dict[str, Any]:
+def status(cid: str = "", today: date | None = None, user: str = "owner",
+           people: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """The tab for one login (`user`): its own progress, streak and stars, plus who else read each chapter.
+    `people` = the logins to show, [{role, name, color}] (the UI passes these; default: just the owner)."""
     cfg = config()
     from . import cronja
 
@@ -177,8 +203,15 @@ def status(cid: str = "", today: date | None = None) -> dict[str, Any]:
     if not base["enabled"]:
         return base
     chs = chapters()
-    st = _state()
+    user = _user(user)
+    every = _all_state()
+    st = every[user]
     done, fav = st["read"], st["fav"]
+    people = [p for p in (people or [{"role": "owner", "name": "", "color": "blue"}]) if p.get("role") in USERS]
+    if user not in {p["role"] for p in people}:
+        people = people + [{"role": user, "name": "", "color": "gray"}]
+    readers = [p | {"me": p["role"] == user, "read": len(every[p["role"]]["read"])} for p in people]
+    who = lambda x: [p["role"] for p in people if x in every[p["role"]]["read"]]  # noqa: E731
     today = today or _today()
     ids = [c["id"] for c in chs]
     nxt = next((c for c in chs if c["id"] not in done), None)
@@ -189,7 +222,8 @@ def status(cid: str = "", today: date | None = None) -> dict[str, Any]:
     for no, name in enumerate(BOOKS, start=1):
         in_book = [c for c in chs if c["book"] == no]
         books.append({"no": no, "name": name, "total": len(in_book),
-                      "chapters": [{"id": c["id"], "no": c["no"], "read": c["id"] in done, "fav": c["id"] in fav}
+                      "chapters": [{"id": c["id"], "no": c["no"], "read": c["id"] in done, "fav": c["id"] in fav,
+                                    "read_by": who(c["id"])}
                                    for c in in_book]})
     favorites = []
     for c in chs:  # in the book's order
@@ -203,7 +237,11 @@ def status(cid: str = "", today: date | None = None) -> dict[str, Any]:
         "source": SOURCE_LABEL,
         "total": len(chs), "read": sum(1 for x in ids if x in done), "streak": _streak(done, today),
         "read_today": sum(1 for v in done.values() if v == today.isoformat()),
-        "next_id": nxt["id"] if nxt else None, "current": _chapter_view(current, done, fav),
+        "next_id": nxt["id"] if nxt else None,
+        "current": _chapter_view(current, done, fav)
+        | {"read_by": [{"role": p["role"], "on": every[p["role"]]["read"][current["id"]]}
+                       for p in people if current["id"] in every[p["role"]]["read"]]},
+        "user": user, "readers": readers,
         "prev_id": ids[i - 1] if i > 0 else None, "following_id": ids[i + 1] if i + 1 < len(ids) else None,
         "notes_ready": sum(1 for x in ids if x not in done and _note_path(x).exists()),
         "books": books, "favorites": favorites,
@@ -275,10 +313,17 @@ async def generate(ids: list[str], ask: Ask | None = None) -> dict[str, Any]:
 
 
 def upcoming(n: int | None = None) -> list[str]:
-    """The next n unread chapters in order (the current one first)."""
-    n = int(n or config().get("ahead") or 3)
-    done = _progress()
-    return [c["id"] for c in chapters() if c["id"] not in done][:max(1, min(n, 20))]
+    """The next n unread chapters for each reader, in the book's order (the owner's current one first)."""
+    n = max(1, min(int(n or config().get("ahead") or 3), 20))
+    every = _all_state()
+    out: list[str] = []
+    for u in USERS:
+        if u != "owner" and not every[u]["read"]:
+            continue  # someone who never started does not pull notes for chapter 1
+        for x in [c["id"] for c in chapters() if c["id"] not in every[u]["read"]][:n]:
+            if x not in out:
+                out.append(x)
+    return out
 
 
 def run_generation(ids: list[str] | None = None, ask: Ask | None = None) -> dict[str, Any]:
