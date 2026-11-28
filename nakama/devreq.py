@@ -10,6 +10,7 @@ Stored in workspace/dev/requests.json (git-ignored):
   family = shown to the guest login too. Requests the guest adds are always family; the owner's own requests
   stay private unless the owner ticks them (so nothing personal or work-related reaches the family by default).
   The guest can use family requests fully (status, reply to the memo) but never sees or touches the others.
+  triage = the requirements Claude wrote (devtriage.py): {summary, size, questions, spec, hash, at}
 """
 from __future__ import annotations
 
@@ -20,8 +21,9 @@ from typing import Any
 from .config import WORKSPACE_DIR
 
 FILE = WORKSPACE_DIR / "dev" / "requests.json"
-STATUSES = ("open", "partial", "consult", "done", "hold", "dropped")
-# consult = needs a decision / not feasible as asked, dropped = withdrawn by whoever asked
+STATUSES = ("open", "ready", "partial", "consult", "done", "hold", "dropped")
+# ready = 着手OK (the owner approved the spec; only the owner sets it), consult = needs a decision,
+# dropped = withdrawn by whoever asked
 
 
 def load() -> list[dict[str, Any]]:
@@ -74,6 +76,8 @@ def update(rid: str, status: str | None = None, note: str | None = None,
         raise ValueError(f"unknown request: {rid}")  # the same answer as for a missing id: nothing leaks
     if guest and family is not None:
         raise PermissionError("家族に見せるかどうかは、オーナーだけが変えられます")
+    if guest and status == "ready":
+        raise PermissionError("着手OK にできるのはオーナーだけです")
     if status is not None:
         if status not in STATUSES:
             raise ValueError(f"status は {STATUSES} のどれか")
@@ -84,6 +88,22 @@ def update(rid: str, status: str | None = None, note: str | None = None,
             row[key] = str(value)[:4000]
     if family is not None:
         row["family"] = bool(family)
+    row["updated"] = datetime.now().isoformat(timespec="minutes")
+    _save(rows)
+    return row
+
+
+def set_triage(rid: str, triage: dict[str, Any]) -> dict[str, Any]:
+    """Store Claude's requirements on a request. Questions -> 要相談; answered (no questions) -> back to オープン."""
+    rows = load()
+    row = next((r for r in rows if r["id"] == rid), None)
+    if row is None:
+        raise ValueError(f"unknown request: {rid}")
+    row["triage"] = triage
+    if triage.get("questions") and row.get("status") in ("open", "partial"):
+        row["status"] = "consult"
+    elif not triage.get("questions") and row.get("status") == "consult":
+        row["status"] = "open"
     row["updated"] = datetime.now().isoformat(timespec="minutes")
     _save(rows)
     return row
