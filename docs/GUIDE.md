@@ -267,6 +267,41 @@ devreq:
 - Claude に渡すのは、その要望 1 件の文章と「指示」、それにアプリの構成（公開コードのタブ名・モジュール名）だけです。ほかの要望やデータは渡しません。
 - 要望タブの「今すぐ」ボタンで、すぐに実行することもできます。
 
+### 要望の実装（devbox が下書き PR を作る・任意）
+
+「着手OK」にした要望を、別コンテナ（devbox）の Claude が実装し、テストとレビューを通してから **下書き PR** を出します。マージはいつも人が行います。
+
+```
+要望 → 要件定義（Claude・朝昼夜） → オーナーが「着手OK」 → devbox: 実装 → テスト → レビュー → 下書き PR → オーナーがマージ → 自動デプロイ
+```
+
+- 実行は毎晩 1:20（`devreq.implement.schedule`）。要望の行の「実装する」ボタンですぐに渡すこともできます。
+- devbox には家計などのデータ・`config/`・`.env` を入れません。見えるのは、受け渡し用のフォルダ（`workspace/devq/`）、自分用のリポジトリのクローン（`devbox/`）、`secrets/` だけです。
+- Claude は権限のないユーザーで動き、使えるのはファイルの読み書きと `pytest`・`git diff` だけです。GitHub トークンは root だけが読めるファイルに置き、push と PR 作成は devbox の本体（Claude ではない）が行います。
+- `.github/` と `scripts/nas-autodeploy.sh` は変更させません。`Dockerfile` などの変更は、PR に「慎重に見てほしいファイル」として出します。
+- `secrets/forbidden.txt` に書いた語（名前・口座・ブランドなど、1 行 1 語）が差分や PR の文面に入っていたら、出しません。
+- テストかレビューが通らなければ、指摘を Claude に戻して直させます（既定 3 回まで）。それでも駄目なら要望を「要相談」に戻し、理由をメモに書きます。
+- main はブランチ保護（PR 必須・CI 必須）にしておいてください。トークンでも main には直接書けなくなります。
+
+**GitHub トークン**：Fine-grained token、リポジトリはこのリポジトリだけ、権限は Contents と Pull requests の Read and write だけ（期限は最長 1 年）。
+
+**NAS での設定（1 回だけ）**
+
+```bash
+cd /volume1/docker/auto_workflow
+mkdir -p secrets
+sudo sh -c 'umask 077; cat > secrets/github-token'     # トークンを貼って Enter、Ctrl+D
+sudo sh -c 'umask 077; cat > secrets/forbidden.txt'    # 出してはいけない語を 1 行ずつ、Ctrl+D（任意だが推奨）
+sudo chown root:root secrets/github-token secrets/forbidden.txt
+echo 'COMPOSE_PROFILES=devbox' >> .env
+sed -i '/^devreq:/a\  implement:\n    enabled: true' config/fleet.yaml   # devreq: の下に implement を足す
+grep -A5 '^devreq:' config/fleet.yaml                  # triage と implement が並んでいれば OK
+sudo docker compose up -d --build
+sudo docker compose logs devbox --tail 20              # "waiting for jobs" が出れば準備完了
+```
+
+要望タブに「devbox: 待機中」と出れば動いています。`fleet.yaml` の `devreq.implement` では `schedule`・`model`・`budget_usd`（1 件あたりの上限）・`rounds`（直す回数）を変えられます。
+
 ## 7. コネクタを追加する
 
 コネクタは「エージェントがどこからデータを取るか」の切り替えスイッチです。既定は全部 `local`（`workspace/` のファイル）です。

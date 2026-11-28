@@ -21,8 +21,9 @@ from typing import Any
 from .config import WORKSPACE_DIR
 
 FILE = WORKSPACE_DIR / "dev" / "requests.json"
-STATUSES = ("open", "ready", "partial", "consult", "done", "hold", "dropped")
-# ready = 着手OK (the owner approved the spec; only the owner sets it), consult = needs a decision,
+STATUSES = ("open", "ready", "working", "review", "partial", "consult", "done", "hold", "dropped")
+# ready = 着手OK (the owner approved the spec; only the owner sets it), working = the devbox is implementing,
+# review = a draft PR waits for the owner's review (devimpl.py), consult = needs a decision,
 # dropped = withdrawn by whoever asked
 
 
@@ -76,8 +77,8 @@ def update(rid: str, status: str | None = None, note: str | None = None,
         raise ValueError(f"unknown request: {rid}")  # the same answer as for a missing id: nothing leaks
     if guest and family is not None:
         raise PermissionError("家族に見せるかどうかは、オーナーだけが変えられます")
-    if guest and status == "ready":
-        raise PermissionError("着手OK にできるのはオーナーだけです")
+    if guest and status in ("ready", "working", "review"):
+        raise PermissionError("着手OK・実装中・レビュー待ちにできるのはオーナーだけです")
     if status is not None:
         if status not in STATUSES:
             raise ValueError(f"status は {STATUSES} のどれか")

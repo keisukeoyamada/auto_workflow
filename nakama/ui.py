@@ -2420,8 +2420,11 @@ class _Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/devreq":
             from . import devreq
             guest = self._role() == "guest"
-            from . import cronja, devtriage
+            from . import cronja, devimpl, devtriage
+            devimpl.ingest()  # the devbox's finished work shows up on the next look
             self._dispatch(lambda: {"requests": devreq.for_family() if guest else devreq.load(),
+                                    "implement": {} if guest else devimpl.status()
+                                    | {"schedule_ja": cronja.describe(devimpl.schedule())},
                                     "statuses": devreq.STATUSES, "guest": guest, "repo": build_info()["repo"],
                                     "triage": devtriage.state() | {"schedule_ja": cronja.describe(devtriage.schedule())}})
         elif url.path == "/api/cron/help":
@@ -2553,6 +2556,12 @@ class _Handler(BaseHTTPRequestHandler):
             guest = me["role"] == "guest"
             self._dispatch(lambda: devreq.add(str(body.get("text", "")), note="" if guest else str(body.get("note", "")),
                                               by=me["role"], by_name=me["name"], family=bool(body.get("family"))))
+        elif url.path == "/api/devreq/implement":
+            from . import devimpl
+            if self._role() == "guest":
+                self._send(403, {"error": "forbidden for this login"})
+            else:
+                self._dispatch(lambda: devimpl.enqueue([str(body["id"])] if body.get("id") else None))
         elif url.path == "/api/devreq/triage":
             from . import devtriage
             if self._role() == "guest":

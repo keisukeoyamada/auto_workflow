@@ -103,6 +103,13 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_devbox(args: argparse.Namespace) -> int:
+    from .devbox import serve_forever
+
+    serve_forever()
+    return 0
+
+
 def cmd_ui(args: argparse.Namespace) -> int:
     from .ui import serve_ui
 
@@ -199,6 +206,9 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("request", help="queue a change request for the coordinator")
     p.add_argument("text")
     p.set_defaults(func=cmd_request)
+
+    p = sub.add_parser("devbox", help="(devbox container) implement 着手OK requests and open draft PRs")
+    p.set_defaults(func=cmd_devbox)
 
     p = sub.add_parser("costs", help="show spend for a day")
     p.add_argument("--date", help="YYYY-MM-DD (default: today)")
