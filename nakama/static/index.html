@@ -331,6 +331,9 @@
            border: 0; backdrop-filter: none; width: auto; }
   #nav { padding-right: 190px; }  /* room for the floating name badge + chat button */
   header { display: flex; align-items: center; gap: 8px; }
+  .memenu { position: relative; } .memenu summary { list-style: none; cursor: pointer; } .memenu summary::-webkit-details-marker { display: none; }
+  .memenu .menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 180px; background: var(--panel);
+                  border: 1px solid var(--line); border-radius: 12px; padding: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.12); }
   .me { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 3px; border-radius: 999px;
         background: var(--panel); border: 1px solid var(--line); font-size: 13px; font-weight: 600; white-space: nowrap; }
   .me .av { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
@@ -458,6 +461,7 @@ async function api(path, body) {
     opt.body = JSON.stringify(body);
   }
   const res = await fetch(path, opt);
+  if (res.status === 401) { location.href = "/login"; throw new Error("ログインし直してください"); }
   const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
   // The server issues a new token on every start: reload once to pick it up (guarded against reload loops)
   if (res.status === 403 && /bad token/.test(data.error || "")) {
@@ -583,9 +587,11 @@ function setHTMLCached(id, html) {
   const el = document.getElementById(id);
   if (el && el.dataset.last !== html) { el.innerHTML = html; el.dataset.last = html; }
 }
-function meBadge(me) {  // who is logged in: initial in a coloured circle + name (top right)
+function meBadge(me) {  // who is logged in: initial in a coloured circle + name (top right); click for logout
   if (!me) return "";
-  return `<span class="me" title="ログイン中: ${esc(me.name)}"><span class="av av-${esc(me.color)}">${esc([...me.name][0] || "?")}</span><span class="nm">${esc(me.name)}</span></span>`;
+  return `<details class="memenu"><summary class="me" title="ログイン中: ${esc(me.name)}"><span class="av av-${esc(me.color)}">${esc([...me.name][0] || "?")}</span><span class="nm">${esc(me.name)}</span></summary>
+    <div class="menu"><div class="cal-legend" style="margin:0 0 8px">ログイン中: ${esc(me.name)}</div>
+      <form method="post" action="/logout"><button class="btn" type="submit" style="width:100%">ログアウト</button></form></div></details>`;
 }
 function renderHeader() {
   const o = state.overview; if (!o) return;
@@ -2099,11 +2105,11 @@ function crPaintTable() {
         <button class="btn" data-crbulk="half" ${sel.size ? "" : "disabled"}>折半</button>
         <button class="btn" data-crbulk="check" ${sel.size ? "" : "disabled"}>確認済みにする</button>
         <button class="btn" data-crbulk="exclude" ${sel.size ? "" : "disabled"}>除外</button></span>`}</div>
-    <div class="tablewrap"><table class="crtable" data-filtered="1"><tr><th class="sm-hide"><input type="checkbox" id="cr-selall" ${lock}></th><th>日付</th><th title="どのカードで支払ったか（振り分けの参考）">誰</th><th>内容</th><th>状態</th><th class="num">金額</th>
+    <div class="tablewrap"><table class="crtable" data-filtered="1"><tr><th class="sm-hide"><input type="checkbox" id="cr-selall" ${lock}></th><th>日付</th><th title="どのカードで払ったか（振り分けの参考）。・のあとの数字はカードの会員番号の末尾">誰・会員番号末尾</th><th>内容</th><th>状態</th><th class="num">金額</th>
       <th>振り分け</th><th class="num sm-hide">${esc(ma.label)}負担額</th><th class="num sm-hide">${esc(mb.label)}負担額</th>
       <th class="num sm-hide">${esc(c.shared_label)}から負担額</th><th class="sm-hide">memo</th></tr>
       ${body || '<tr><td colspan="11">該当する行がありません</td></tr>'}</table></div>
-    <div class="cal-legend">「誰」= どのカードで払ったか（振り分けの参考）。振り分けを押さない行は ${esc(c.shared_label)}。「指定」で両者の負担額を直接入力（残りが ${esc(c.shared_label)}）。赤字 = 負担額の合計が金額を超えている行。
+    <div class="cal-legend">「誰・会員番号末尾」= どのカード（会員番号の末尾）で払ったか（振り分けの参考）。振り分けを押さない行は ${esc(c.shared_label)}。「指定」で両者の負担額を直接入力（残りが ${esc(c.shared_label)}）。赤字 = 負担額の合計が金額を超えている行。
       「除外」= 振り分けと入金額の計算から外して隠す（ポイント充当と相殺のペアなど）。請求額との照合には含めます。「過去」= 同じ店を以前どう振り分けたか（押すと同じにする）。</div>`;
 }
 function crSyncMonth(s) {  // keep the month picker and the month list current after a save
