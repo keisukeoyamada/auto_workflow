@@ -25,6 +25,7 @@ SKIP="$REPO/logs/autodeploy.skip"    # commit we gave up on (failed CI or failed
 LOCK="${TMPDIR:-/tmp}/nakama-autodeploy.lock"
 STATE="$REPO/logs/autodeploy-state.json"  # read by the dashboard: "反映中… あと約 N 分"
 CHECK="$REPO/logs/autodeploy-check.json"  # read by the dashboard: when this task last looked, and what it found
+DEPLOYED="$REPO/logs/autodeploy.deployed" # the commit that was last rebuilt successfully (not just checked out)
 LOCK_STALE_MIN=30                         # a lock older than this is from a run that died: take it over
 TO=$(command -v timeout || true)          # time limit for network calls (git fetch can hang on a bad connection)
 
@@ -44,7 +45,9 @@ if ! mkdir "$LOCK" 2>/dev/null; then
     exit 0                                  # normal while a build runs
   fi
 fi
-trap 'checked; rmdir "$LOCK"' EXIT INT TERM
+trap 'checked; rmdir "$LOCK"' EXIT
+# Canceled (Ctrl+C, task stopped, NAS shutting down): say so, and do not leave "反映中" on the dashboard.
+trap 'RESULT="interrupted"; log "interrupted"; [ -n "${START:-}" ] && state failed "$LAST"; exit 1' INT TERM HUP
 
 # Run git as the owner of the checkout so pulled files stay theirs (the task runs as root for docker).
 # sudo resets PATH (secure_path), so git is called by its full path, with the owner's HOME for its settings.
@@ -70,8 +73,11 @@ fi
 
 RESULT="fetch failed"
 OUT=$(g fetch -q origin "$BRANCH" 2>&1) || { log "git fetch failed: $(why "$OUT")"; exit 1; }
-LOCAL=$(g rev-parse HEAD)
 REMOTE=$(g rev-parse "origin/$BRANCH")
+# "Deployed" means rebuilt, not checked out: a run canceled after the fast-forward but before the rebuild
+# left the checkout new and the containers old, and comparing HEAD made every later run think it was done.
+LOCAL=$(cat "$DEPLOYED" 2>/dev/null || true)
+[ -n "$LOCAL" ] || { LOCAL=$(g rev-parse HEAD); echo "$LOCAL" > "$DEPLOYED"; }  # first run: trust the checkout
 RESULT="up to date"
 [ "$LOCAL" = "$REMOTE" ] && exit 0
 RESULT="skipped (failed before)"
@@ -136,6 +142,7 @@ elif ! healthy; then
   rollback "$REMOTE did not answer after the restart (health check)"
 else
   log "deployed $REMOTE"
+  echo "$REMOTE" > "$DEPLOYED"
   rm -f "$SKIP"
   state done "$(( $(date +%s) - START ))"
   RESULT="deployed"
