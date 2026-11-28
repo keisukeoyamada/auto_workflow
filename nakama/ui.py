@@ -2352,7 +2352,7 @@ class _Handler(BaseHTTPRequestHandler):
         if not self._guard(api=True, path=url.path):
             return
         if url.path == "/api/overview" and self._role() == "guest":
-            self._dispatch(lambda: guest_overview(list(self.guest_tabs)) | {"me": self._me()})
+            self._dispatch(lambda: guest_overview(list(self.guest_tabs)) | {"me": self._me(), "people": self._approvers()})
             return
 
         def list_kind():
@@ -2361,7 +2361,7 @@ class _Handler(BaseHTTPRequestHandler):
             return _list_kind(q["kind"], q.get("samples", "1") != "0")
 
         if url.path == "/api/overview":
-            self._dispatch(lambda: overview(q.get("samples", "1") != "0") | {"me": self._me()})
+            self._dispatch(lambda: overview(q.get("samples", "1") != "0") | {"me": self._me(), "people": self._approvers()})
         elif url.path == "/api/list":
             self._dispatch(list_kind)
         elif url.path == "/api/file":
