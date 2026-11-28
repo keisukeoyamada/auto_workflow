@@ -12,3 +12,9 @@ services:
     # this port (e.g. a Tailscale container sharing apps with family) reaches it as host.docker.internal.
     ports:
       - "8766:8765"
+
+  # devbox (only with COMPOSE_PROFILES=devbox): on Synology it needs the same group to create its clone in devbox/
+  # ("could not create work tree dir '/work/repo': Permission denied" without it).
+  # devbox:
+  #   group_add:
+  #     - "101"
